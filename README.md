@@ -2,11 +2,11 @@
 
 CrewBee Project Context is a lightweight project context layer for Agent Coding.
 
-It stores high-signal project knowledge in a `.crewbee/` workspace, including project identity, architecture, implementation snapshot, plan, current state, handoff, decisions, and memory index.
+It stores high-signal project knowledge in a `.crewbeectxt/` workspace, including project identity, architecture, implementation snapshot, plan, current state, handoff, decisions, and memory index.
 
 It helps CrewBee agents restore project context with minimal attention cost, while delegating scaffold maintenance to a Project Context Maintainer instead of the main coding agent.
 
-It is designed to integrate with OpenCode + CrewBee as an optional runtime extension. The CLI is kept as an internal debugging and CI utility, not as the primary user workflow.
+It integrates with OpenCode + CrewBee as a sibling OpenCode plugin. The CLI is kept as an internal debugging and CI utility, not as the primary user workflow.
 
 > CrewBee should integrate it, but not be core-coupled to it.
 
@@ -32,16 +32,16 @@ CrewBee
   = Team-first Agent framework / OpenCode adapter / Agent projection / runtime integration
 ```
 
-This repository owns the `.crewbee/` convention and the tools that read, validate, summarize, search, and safely update it. CrewBee can detect and consume this context, but CrewBee Core does not need to depend on the details of the scaffold.
+This repository owns the `.crewbeectxt/` convention and the tools that read, validate, summarize, search, and safely update it. CrewBee can consume the tools, but CrewBee Core does not depend on scaffold details.
 
 ## MVP capabilities
 
-- Detect or lazily bootstrap a `.crewbee/` context workspace.
+- Detect or lazily bootstrap a `.crewbeectxt/` context workspace.
 - Generate a low-token Runtime Rule + Context Capsule.
-- Expose only `project_context_prepare`, `project_context_search`, and `project_context_finalize_request` to the main agent.
-- Delegate scaffold reading and maintenance to an internal Context Maintainer.
+- Expose only `project_context_prepare`, `project_context_search`, and `project_context_finalize` to the main agent.
+- Delegate scaffold reading and maintenance to a hidden OpenCode Context Maintainer subagent behind those tools.
 - Avoid exposing scaffold file structure through `project_context_read`.
-- Integrate as a CrewBee/OpenCode runtime extension.
+- Integrate as an OpenCode plugin and do not use `experimental.session.compacting`.
 
 ## Quick start
 
@@ -53,12 +53,12 @@ npm run build
 npm run primer
 ```
 
-In product usage, install the CrewBee/OpenCode integration and start OpenCode. Project Context detects `.crewbee/`, injects a compact capsule, and registers the minimal tools automatically. Internal CLI commands remain available for development and CI diagnostics.
+In product usage, install `crewbee` and `crewbee-project-context` as OpenCode plugins and start OpenCode. Project Context detects `.crewbeectxt/`, injects a compact capsule, and registers the minimal tools automatically. Internal CLI commands remain available for development and CI diagnostics.
 
-## `.crewbee/` workspace
+## `.crewbeectxt/` workspace
 
 ```text
-.crewbee/
+.crewbeectxt/
   QUICKSTART.md
   PROJECT.md
   ARCHITECTURE.md
@@ -74,11 +74,11 @@ In product usage, install the CrewBee/OpenCode integration and start OpenCode. P
   cache/
 ```
 
-The workspace is a compact execution view for agents, not a replacement for canonical long-form docs. Use `docs/` for durable human-facing design material and `.crewbee/` for compressed execution state.
+The workspace is a compact execution view for agents, not a replacement for canonical long-form docs. Use `docs/` for durable human-facing design material and `.crewbeectxt/` for compressed execution state.
 
 ## Template directory rule
 
-During development, scaffold source documents live under `templates/crewbee-template/` to make it explicit that they are templates. The production context directory created inside a target project is always `.crewbee/`.
+During development, scaffold source documents live under `templates/crewbeectxt-template/` to make it explicit that they are templates. The production context directory created inside a target project is always `.crewbeectxt/`.
 
 ## Documentation
 
@@ -90,4 +90,4 @@ During development, scaffold source documents live under `templates/crewbee-temp
 
 ## Current implementation status
 
-This version uses a TypeScript implementation with a small object-oriented service structure. The framework direction is OpenCode + CrewBee plug-and-play integration with minimal tool surface: prepare, search, and finalize_request. `.crewbee/` remains the only production context directory.
+This version uses a TypeScript implementation with a small object-oriented service structure and an OpenCode plugin adapter. The framework direction is OpenCode + CrewBee plug-and-play integration with minimal tool surface: prepare, search, and finalize. `.crewbeectxt/` is the product context directory.

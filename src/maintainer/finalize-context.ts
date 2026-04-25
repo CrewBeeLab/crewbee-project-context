@@ -143,7 +143,7 @@ export class SessionFinalizer {
   }
 
   private renderMemoryEntry(entry: Record<string, string>): string {
-    return `- ID: ${entry.id ?? "M-TBD"}\n  Type: ${entry.type ?? "discovery"}\n  Summary: ${entry.summary ?? "TBD"}\n  Affects: ${entry.affects ?? "TBD"}\n  References: ${entry.references ?? ".crewbee/observations"}`;
+    return `- ID: ${entry.id ?? "M-TBD"}\n  Type: ${entry.type ?? "discovery"}\n  Summary: ${entry.summary ?? "TBD"}\n  Affects: ${entry.affects ?? "TBD"}\n  References: ${entry.references ?? `${DEFAULT_CONTEXT_DIR}/observations`}`;
   }
 
   private renderDecision(decision: Record<string, string>): string {

@@ -53,7 +53,7 @@ export class ContextCapsuleBuilder {
       `- Blockers: ${state.blockers.length > 0 ? state.blockers.join("; ") : "none"}`,
       "",
       "Context access:",
-      "- Main agent should use project_context_prepare/search/finalize_request, not direct scaffold reads.",
+      "- Main agent should use project_context_prepare/search/finalize, not direct scaffold reads.",
       "",
       "Next actions:",
       ...(nextActions.length > 0 ? nextActions.map((item, index) => `${index + 1}. ${item}`) : ["1. No explicit next action recorded."]),
@@ -61,7 +61,7 @@ export class ContextCapsuleBuilder {
       "High-signal memory:",
       ...(memories.length > 0 ? memories.map((entry) => `- ${entry.id ?? "memory"} ${entry.type ?? ""}: ${entry.summary ?? ""}`.trim()) : ["- none recorded"]),
       "",
-      "Agent rule: Use project_context_prepare first and project_context_search only when prepared context is insufficient. Do not read or edit .crewbee files directly in the main coding flow."
+      "Agent rule: Use project_context_prepare first and project_context_search only when prepared context is insufficient. Use project_context_finalize after material changes."
     ];
     const text = this.enforceBudget(lines.join("\n"), budgetTokens);
     return { text, estimatedTokens: this.estimateTokens(text), sourceFiles, warnings };

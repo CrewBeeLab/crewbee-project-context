@@ -2,16 +2,16 @@ project_id: crewbee-project-context
 run_status: running
 active_cycle: C1
 active_step_id: S7
-last_checkpoint: CP-0010
+last_checkpoint: CP-0012
 blockers: []
 next_actions:
-  - action: Wire this package into the real CrewBee/OpenCode plugin hooks when working in the CrewBee runtime repository.
+  - action: Implement CrewBee-style user-level install and doctor flow for crewbee-project-context.
     owner: active-agent
     source: updateContext
-  - action: Keep main-agent prompt injection limited to Runtime Rule plus Context Capsule.
+  - action: Run an end-to-end OpenCode startup smoke test with plugin config [crewbee, crewbee-project-context].
     owner: active-agent
     source: updateContext
-  - action: Do not expose scaffold file paths or project_context_read to the main coding agent.
+  - action: Validate maintainer subsession behavior against a live OpenCode runtime.
     owner: active-agent
     source: updateContext
 sync:

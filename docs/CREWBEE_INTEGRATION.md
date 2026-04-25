@@ -1,89 +1,94 @@
-# CrewBee Integration Design
+# CrewBee + Project Context Integration Design
 
 ## Principle
 
-CrewBee should integrate CrewBee Project Context, but should not turn it into a core-coupled module.
-
-The integration must be minimal: detect `.crewbee/`, inject one compact primer, and expose only the smallest useful tool surface. Do not add a second runtime, background memory manager, complex sync daemon, or CrewBee Core contract dependency.
+`crewbee` and `crewbee-project-context` are sibling OpenCode plugins.
 
 ```text
-CrewBee Core:
-  no hard knowledge of .crewbee file details
+crewbee
+  -> Team / Agent projection, delegation, runtime binding
 
-CrewBee Adapter / Plugin:
-  optionally loads @crewbee/project-context
-
-Project Context:
-  exposes prepare, search, and finalize_request tools through the CrewBee/OpenCode runtime extension
+crewbee-project-context
+  -> .crewbeectxt project context, hidden maintainer, prepare/search/finalize tools
 ```
 
-## Runtime flow
+Project Context does not enter CrewBee Core, does not become a visible CrewBee Team member, and does not use CrewBee `delegate_task`.
 
-```text
-OpenCode session starts
-  -> CrewBee plugin loads
-  -> CrewBee identifies projected agent/team
-  -> CrewBee detects project root
-  -> CrewBee calls @crewbee/project-context.detect(root)
-  -> if .crewbee exists:
-       build Context Primer
-       inject primer into system prompt
-       register project_context_prepare/search/finalize_request tools
-  -> Agent uses prepare before broad project-context exploration
-  -> Agent performs task
-  -> Agent triggers finalize_request when state materially changes
-```
+## Plugin order
 
-## Prompt injection
-
-CrewBee should inject only a compact Runtime Rule + Context Capsule, not full documents.
-
-The capsule contains:
-
-- project identity;
-- active step/status;
-- blockers;
-- exact next actions;
-- high-signal memory;
-- available tools.
-
-## Suggested CrewBee config
+Recommended OpenCode config:
 
 ```json
 {
-  "projectContext": {
-    "enabled": true,
-    "primerBudgetTokens": 1000,
-    "autoInjectPrimer": true,
-    "autoFinalize": "manual",
-    "registerTools": true,
-    "writeMode": "tool-confirmed"
-  }
+  "plugin": ["crewbee", "crewbee-project-context"]
 }
 ```
 
-## Suggested tools
+CrewBee projects visible agents first. Project Context then injects hidden `project-context-maintainer`, registers tools, and adds a task deny guard so primary agents do not call the maintainer directly.
+
+## Main-agent surface
+
+Visible to CrewBee agents:
 
 ```text
 project_context_prepare
 project_context_search
-project_context_finalize_request
+project_context_finalize
 ```
 
-Do not expose `project_context_read`; scaffold file selection is handled by the internal Context Maintainer.
-
-## Minimal shared agent rule
-
-Avoid repeating a long Project Context policy in every agent. CrewBee can add one compact shared rule:
+Not visible:
 
 ```text
-When Project Context is available, use project_context_prepare before broad project-context exploration. Use project_context_search only when prepared context is insufficient. Do not read or edit .crewbee files directly. After material changes, call project_context_finalize_request with completed work, changed files, verification, blockers, and next actions.
+project_context_read
+.crewbeectxt file menu
+project-context-maintainer prompt
+maintainer subsession id/status
 ```
+
+## Hooks
+
+Project Context uses only:
+
+```text
+config
+experimental.chat.system.transform
+```
+
+It intentionally does not use `experimental.session.compacting`; compaction output already carries necessary session context and Project Context should remain passive until a tool is called.
+
+## Runtime rule
+
+Injected rule is compact:
+
+```text
+Project Context is available through crewbee-project-context.
+Use project_context_prepare when prior project architecture, implementation state, plan, or decisions may affect the task.
+Use project_context_search only when prepared context is insufficient.
+After material changes, call project_context_finalize with summary, changed files, verification, blockers, and next actions.
+```
+
+No rule forbids the CrewBee main agent from editing `.crewbee/` or business files. Project Context avoids attention cost by hiding `.crewbeectxt/` details, not by constraining CrewBee's normal permissions.
+
+## Maintainer execution
+
+Tool call flow:
+
+```text
+main CrewBee agent calls project_context_* tool
+  -> crewbee-project-context plugin creates OpenCode subsession
+  -> hidden project-context-maintainer runs with restricted permissions
+  -> maintainer reads/searches/updates .crewbeectxt/**
+  -> plugin runs doctor for finalize
+  -> tool returns final compact result
+```
+
+No status, cancel, or streaming interface is exposed for maintainer jobs in V1.
 
 ## Non-goals
 
-- Do not make `.crewbee/` mandatory for CrewBee.
-- Do not move scaffold templates into CrewBee Core.
-- Do not break existing CrewBee team projection when project context is absent.
-- Do not auto-write project state without explicit tool/action boundaries in the MVP.
-- Do not introduce background indexing, vector search, or a separate runtime for the integration MVP.
+- No compaction hook.
+- No project_context_read.
+- No visible maintainer agent.
+- No CrewBee Core contract change.
+- No modification to primary agent edit/write permissions.
+- No SQLite/vector database/background sync daemon.

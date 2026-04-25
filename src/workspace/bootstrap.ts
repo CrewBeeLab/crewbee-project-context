@@ -5,7 +5,7 @@ import type { InitOptions, InitResult, ValidationResult } from "../core/types.js
 import { ProjectContextParser } from "../indexer/parser.js";
 import { FileSystemProjectContextStore } from "./workspace-store.js";
 
-const TEMPLATE_DIR = new URL("../../templates/crewbee-template/", import.meta.url);
+const TEMPLATE_DIR = new URL("../../templates/crewbeectxt-template/", import.meta.url);
 
 export class ProjectContextWorkspace {
   public constructor(

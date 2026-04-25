@@ -4,4 +4,8 @@ coverage/
 .crewbee/cache/
 .crewbee/tmp/
 .crewbee/*.lock
+.crewbeectxt/cache/
+.crewbeectxt/tmp/
+.crewbeectxt/*.lock
+tmp/
 *.log

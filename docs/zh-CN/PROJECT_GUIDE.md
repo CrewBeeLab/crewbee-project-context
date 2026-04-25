@@ -1,44 +1,91 @@
-# CrewBee Project Context 最小注意力实现方案
+# crewbee-project-context 最新完整实现方案
 
-## 1. 项目定位
+## 1. 最终定案
 
-CrewBee Project Context 是 CrewBee 的轻量项目上下文侧车。它维护 `.crewbee/` 项目上下文工作区，但不让主 Coding Agent 直接理解、读取或编辑 scaffold 文件结构。
-
-目标是：
-
-> 让 OpenCode + CrewBee 的 Agent Team 在执行任务前以最小上下文成本获得项目连续性；任务结束后把 `.crewbee/` 维护委托给独立 Context Maintainer，而不是占用主 Coding Agent 的注意力。
-
-它不是重型记忆数据库，不是完整知识库，也不是新的 Agent Runtime。它应作为 CrewBee OpenCode 插件的可选运行时扩展，安装后自动生效。
-
-## 2. 核心原则
-
-1. **安装后即插即用**：启动 OpenCode + CrewBee 后自动检测 Project Context，不要求用户手动执行 init。
-2. **主 Agent 不理解 scaffold 结构**：主 Agent 不需要知道 `.crewbee/HANDOFF.md`、`PLAN.yaml`、`MEMORY_INDEX.md` 等文件名和语义。
-3. **不提供 `project_context_read`**：读取哪些 scaffold 文件由 Context Maintainer 决定，不由主 Agent 决定。
-4. **维护工作委托给 Maintainer**：主 Coding Leader 只请求 prepare/search/finalize_request，不直接维护 `.crewbee/`。
-5. **CLI 只作内部调试入口**：CLI 可用于开发、测试、doctor、fixture，不作为用户主流程。
-6. **硬控上下文预算**：主 prompt 只注入极短 Runtime Rule 与 Context Capsule；长文档不进入主会话。
-
-## 3. 总体架构
+`crewbee-project-context` 是一个独立 OpenCode 插件，与 `crewbee` 插件并列安装、并列加载、协同工作。
 
 ```text
 OpenCode
-  -> CrewBee OpenCode Plugin
-  -> CrewBee Team / Agent Runtime
-  -> Project Context Extension
-  -> project_context_prepare / project_context_search / project_context_finalize_request
-  -> Project Context Maintainer sub session
-  -> .crewbee/ context workspace
+  ├─ plugin: crewbee
+  │   └─ Agent Team / Leader / Prompt Projection / Delegation / Runtime
+  └─ plugin: crewbee-project-context
+      └─ Project Context / .crewbeectxt / Maintainer / Handoff / Memory
 ```
 
-CrewBee Core 不依赖 Project Context。Project Context 只接入 CrewBee 的 OpenCode plugin/runtime extension 层。
+Project Context 的生产 scaffold 目录固定为 `.crewbeectxt/`，与 CrewBee 本体可能使用的 `.crewbee/` 明确分离。
 
-## 4. `.crewbee/` 工作区
+## 2. 核心原则
 
-`.crewbee/` 是唯一生产上下文目录名。模板源在 `templates/crewbee-template/`，但目标项目运行时只使用 `.crewbee/`。
+- 不限制 CrewBee 主 Agent 的 edit/write 权限。
+- 主 Agent 只看到 `project_context_prepare`、`project_context_search`、`project_context_finalize` 三个工具。
+- 不提供 `project_context_read`，不暴露 `.crewbeectxt/` 文件菜单。
+- Maintainer 是 OpenCode hidden subagent，通过工具内部 subsession 被动调用。
+- 不使用 `experimental.session.compacting`。
+- Maintainer 只维护 `.crewbeectxt/**`，不写业务代码。
+
+## 3. OpenCode hooks
+
+插件只使用：
 
 ```text
-.crewbee/
+config
+tool
+experimental.chat.system.transform
+```
+
+不使用：
+
+```text
+experimental.session.compacting
+chat.message
+```
+
+`config` 注入 hidden subagent `project-context-maintainer`，并给 visible primary/all agents 增加 task deny，防止直接 Task 调用 maintainer。
+
+`tool` 注册三工具：
+
+```text
+project_context_prepare
+project_context_search
+project_context_finalize
+```
+
+`system transform` 只注入极短 Runtime Rule + compact Context Capsule。
+
+`tool.execute.before` 只兜底阻止直接 Task `project-context-maintainer`，不拦截主 Agent 写 `.crewbee/` 或其它业务文件。
+
+## 4. Hidden Maintainer Agent
+
+注入配置形态：
+
+```json
+{
+  "agent": {
+    "project-context-maintainer": {
+      "mode": "subagent",
+      "hidden": true,
+      "description": "Internal project context maintainer. Invoked only by project_context_* tools.",
+      "permission": {
+        "read": { "*": "allow", "*.env": "deny", "*.env.*": "deny" },
+        "glob": "allow",
+        "grep": "allow",
+        "edit": { "*": "deny", ".crewbeectxt/**": "allow" },
+        "bash": { "*": "deny", "git status *": "allow", "git diff *": "allow", "git log *": "allow" },
+        "webfetch": "deny",
+        "websearch": "deny",
+        "task": "deny"
+      }
+    }
+  }
+}
+```
+
+主 Agent 不感知 maintainer 的存在；工具内部创建 subsession 并等待最终结果，不暴露 session id、状态或中间输出。
+
+## 5. `.crewbeectxt/` 工作区
+
+```text
+.crewbeectxt/
   config.yaml
   PROJECT.md
   ARCHITECTURE.md
@@ -48,182 +95,63 @@ CrewBee Core 不依赖 Project Context。Project Context 只接入 CrewBee 的 O
   HANDOFF.md
   MEMORY_INDEX.md
   DECISIONS.md
+  REFERENCES.md
   observations/
   cache/
 ```
 
-这些文件是事实源，但默认不整体进入主会话。主会话只接收 capsule 摘要。
+启动时如果不存在 `.crewbeectxt/`，插件保持 ephemeral mode，不写文件；首次 `project_context_finalize` 且存在 material progress 时自动 bootstrap。
 
-## 5. 自动初始化策略
+## 6. 工具行为
 
-Project Context 采用 Lazy Auto Bootstrap：
+### `project_context_prepare`
 
-- 启动时检测 `.crewbee/`。
-- 若不存在，进入 ephemeral context mode，不立刻落盘。
-- 首次 `project_context_finalize_request` 且存在值得保留的项目进展时，自动创建最小 `.crewbee/`。
-- 已存在 `.crewbee/` 时直接生成 capsule 并启用工具。
+参数：`goal`、可选 `task_type`、可选 `budget`。
 
-这样避免在无关仓库中启动 OpenCode 时自动写入文件，也避免用户手动 init。
+内部流程：创建 maintainer subsession，让 Maintainer 准备 compact Task Context Brief。
 
-## 6. 主会话注入
+### `project_context_search`
 
-只注入两段：
+参数：`goal`、可选 `budget`。
 
-### 6.1 Runtime Rule
+内部流程：Maintainer 自行决定查 memory、decisions、handoff、implementation 或 observations，并返回 compact findings。
 
-控制在 120-180 tokens，表达：
+### `project_context_finalize`
 
-```text
-Use project_context_prepare before broad project-context exploration.
-Use project_context_search only when prepared context is insufficient.
-Do not read or edit .crewbee files directly in the main coding flow.
-After material changes, call project_context_finalize_request with completed work, changed files, verification, blockers, and next actions.
-```
+参数：`summary`、`changed_files`、`verification`、`blockers`、`next_actions`。
 
-### 6.2 Context Capsule
+内部流程：Maintainer 维护 `.crewbeectxt/**`，插件随后执行 doctor；doctor 失败则工具返回失败。
 
-控制在 400-700 tokens，只包含项目名、状态、active step、last checkpoint、blockers、next actions、Top N memory 和可用工具名。
+## 7. 安装与发布
 
-不暴露 `.crewbee/` 文件菜单。
-
-## 7. 工具接口
-
-只给主 Agent 暴露 3 个工具：
-
-```text
-project_context_prepare
-project_context_search
-project_context_finalize_request
-```
-
-### 7.1 `project_context_prepare`
-
-任务开始前获取任务相关上下文。主 Agent 只描述目标，不指定文件。
+包名与 OpenCode 插件 entry：
 
 ```json
 {
-  "goal": "Implement the OpenCode integration bridge.",
-  "task_type": "coding",
-  "budget": "compact"
+  "name": "crewbee-project-context",
+  "main": "./dist/opencode-plugin.mjs",
+  "exports": {
+    ".": "./dist/src/index.js",
+    "./server": "./dist/opencode-plugin.mjs"
+  }
 }
 ```
 
-返回 Task Context Brief，不返回 scaffold 原文。
-
-### 7.2 `project_context_search`
-
-当 prepare 不够时，请 Maintainer 继续查上下文。
+推荐 OpenCode config：
 
 ```json
 {
-  "goal": "Find prior decisions about CrewBee core coupling.",
-  "budget": "compact"
+  "plugin": ["crewbee", "crewbee-project-context"]
 }
 ```
 
-Maintainer 自行决定查 `MEMORY_INDEX`、`DECISIONS`、`HANDOFF`、`IMPLEMENTATION` 或 observations。
+## 8. MVP 验收
 
-### 7.3 `project_context_finalize_request`
+- OpenCode 能通过 package plugin entry 加载 `crewbee-project-context`。
+- 插件不注册 compaction hook。
+- 主 Agent 只看到三工具，不看到 maintainer、read 工具或 scaffold 文件菜单。
+- hidden maintainer 通过 subsession 执行 prepare/search/finalize。
+- `.crewbeectxt/` 只在 material finalize 时创建或更新。
+- finalize 后 doctor 通过。
 
-任务结束后提交事实，由 Maintainer 独立维护 `.crewbee/`。
-
-```json
-{
-  "summary": "Implemented minimal Project Context tool surface.",
-  "changed_files": ["src/integrations/crewbee/extension.ts"],
-  "verification": ["npm test passed"],
-  "blockers": [],
-  "next_actions": ["Wire plugin into CrewBee OpenCode runtime."]
-}
-```
-
-Maintainer 写入 `.crewbee/` 后运行 doctor，并返回极简结果。
-
-## 8. Context Maintainer
-
-`project-context-maintainer` 是内部 subagent：
-
-```yaml
-visibility: internal
-user_selectable: false
-delegate_only: true
-```
-
-职责：
-
-- 为主 Agent 准备任务相关上下文。
-- 根据目标搜索历史上下文。
-- 任务结束后维护 `.crewbee/`。
-- 保持 handoff 可执行、memory 高信号、observations 精简。
-
-权限：
-
-- 可读 `.crewbee/**`、必要 `docs/**`、变更摘要与验证事实。
-- 可写 `.crewbee/**`。
-- 不写业务代码、测试、package 文件。
-
-## 9. 实现模块
-
-```text
-src/
-  core/                 类型、预算、错误
-  workspace/            .crewbee 路径、bootstrap、doctor、文件访问
-  indexer/              上下文解析
-  capsule/              capsule/brief 构建
-  maintainer/           内部 Context Maintainer、search、patch、finalize
-  service/              ProjectContextService 门面
-  integrations/crewbee/ CrewBee extension/prompt/tools/internal-agent
-  cli/                  internal doctor/primer diagnostics only
-```
-
-当前 TypeScript 实现采用小型 OOP 结构：`ProjectContextService` 协调 Workspace、Capsule、Maintainer、Search、Patch、Finalizer 与 CrewBee Extension。
-
-当前包内提供 `ProjectContextMaintainer` 作为最小内部执行器；在 CrewBee/OpenCode 运行时中，它应被映射为独立 sub session / internal agent。
-
-当前仓库已经完成 sidecar package 与 adapter-facing extension；真正的 OpenCode plugin hook、CrewBee runloop tool registration 与 internal sub session 映射需要在 CrewBee 运行时仓库中接入。
-
-## 10. CrewBee + OpenCode 集成
-
-插件启动流程：
-
-```text
-CrewBee OpenCode plugin loads
-  -> detect project root
-  -> detect .crewbee/
-  -> if missing: ephemeral mode
-  -> if present: build Context Capsule
-  -> inject Runtime Rule + Capsule
-  -> register project_context_prepare/search/finalize_request
-  -> register internal project-context-maintainer
-```
-
-无 `.crewbee/` 时不报错、不强制 init、不污染主 prompt；首次 finalize_request 时按需 bootstrap。
-
-## 11. 防上下文膨胀硬约束
-
-- Runtime Rule ≤ 180 tokens。
-- Context Capsule ≤ 700 tokens。
-- prepare 默认 ≤ 1000 tokens。
-- search 默认 ≤ 800 tokens。
-- finalize_request 返回 ≤ 300 tokens。
-- 不提供 `project_context_read`。
-- 主 Agent 不接收 scaffold 文件路径菜单。
-- 主 Agent 不直接维护 `.crewbee/`。
-- Maintainer sub session 独立消耗上下文。
-- finalize 后必须 doctor。
-- `MEMORY_INDEX` 只保存 high-signal 条目。
-- observations 默认不进入主 prompt。
-
-## 12. 产品主流程
-
-```text
-用户提出 coding 任务
-  -> CrewBee Leader 看到极小 capsule
-  -> 调用 project_context_prepare
-  -> 执行代码任务
-  -> 必要时调用 project_context_search
-  -> 完成后调用 project_context_finalize_request
-  -> Maintainer 独立维护 .crewbee/
-```
-
-最终定案：Project Context 是 CrewBee 的上下文维护侧车，而不是主 Agent 的文档阅读任务。
+一句话：CrewBee 管“谁来做事”；`crewbee-project-context` 管“工程上下文如何持续维护”；`.crewbeectxt/` 是 Project Context 的私有执行态事实源。

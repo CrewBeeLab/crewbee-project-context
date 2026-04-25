@@ -1,4 +1,4 @@
-export const DEFAULT_CONTEXT_DIR = ".crewbee";
+export const DEFAULT_CONTEXT_DIR = ".crewbeectxt";
 
 export const REQUIRED_CONTEXT_FILES = [
   "QUICKSTART.md",
@@ -27,9 +27,9 @@ export const SEARCHABLE_CONTEXT_FILES = [
 ] as const;
 
 export const DEFAULT_READ_ORDER = [
-  ".crewbee/HANDOFF.md",
-  ".crewbee/STATE.yaml",
-  ".crewbee/PLAN.yaml",
-  ".crewbee/IMPLEMENTATION.md",
-  ".crewbee/ARCHITECTURE.md"
+  ".crewbeectxt/HANDOFF.md",
+  ".crewbeectxt/STATE.yaml",
+  ".crewbeectxt/PLAN.yaml",
+  ".crewbeectxt/IMPLEMENTATION.md",
+  ".crewbeectxt/ARCHITECTURE.md"
 ] as const;

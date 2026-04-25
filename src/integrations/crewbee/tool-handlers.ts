@@ -16,7 +16,7 @@ export class CrewBeeProjectContextToolHandlers {
         return this.maintainer.prepare(this.toPrepareInput(input));
       case "project_context_search":
         return this.maintainer.search(this.toSearchInput(input));
-      case "project_context_finalize_request":
+      case "project_context_finalize":
         return this.maintainer.finalizeRequest(this.toFinalizeInput(input));
       default:
         throw new Error(`Unknown CrewBee Project Context tool: ${name}`);

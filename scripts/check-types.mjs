@@ -16,4 +16,9 @@ if (missing.length > 0) {
   process.exit(1);
 }
 
+if (typeof api.ProjectContextOpenCodePlugin?.server !== "function") {
+  console.error("Missing OpenCode plugin server export: ProjectContextOpenCodePlugin.server");
+  process.exit(1);
+}
+
 console.log("API surface check passed.");

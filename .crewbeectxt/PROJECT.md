@@ -10,16 +10,16 @@ CrewBee Project Context
 
 ## Objective
 
-Provide a lightweight project-context layer for Agent Coding. The package owns the `.crewbee/` workspace convention, CLI, API, templates, validation, primer generation, context search, handoff/finalize flow, and optional CrewBee integration bridge.
+Provide a lightweight OpenCode plugin sidecar for CrewBee Agent Coding. The package owns the `.crewbeectxt/` workspace convention, templates, validation, capsule generation, context search, handoff/finalize flow, hidden maintainer subagent, and minimal OpenCode tools.
 
 ## In Scope
 
-- `.crewbee/` scaffold specification.
+- `.crewbeectxt/` scaffold specification.
 - Context initialization and validation.
 - Low-token context primer generation.
-- Minimal prepare/search/finalize_request runtime tools for main agents.
+- Minimal prepare/search/finalize runtime tools for main agents.
 - Internal context read/update/finalize APIs for maintainer and diagnostics.
-- Optional CrewBee integration bridge.
+- OpenCode plugin adapter that can run alongside the CrewBee plugin.
 - Documentation for humans and agents.
 
 ## Out of Scope
@@ -35,7 +35,7 @@ Provide a lightweight project-context layer for Agent Coding. The package owns t
 
 - Follow the minimalism principle for both framework design and implementation.
 - Keep MVP dependency-free or dependency-light.
-- Prefer plain files, explicit CLI/API calls, and adapter-level integration over background services or core coupling.
+- Prefer plain files, explicit tool calls, and adapter-level integration over background services or core coupling.
 - Keep CrewBee integration optional.
 - Prefer files that can be committed and reviewed.
 - Do not store secrets.
@@ -46,4 +46,4 @@ Provide a lightweight project-context layer for Agent Coding. The package owns t
 - Diagnostics pass.
 - Tests pass.
 - Build/typecheck pass.
-- `.crewbee/` context remains consistent with implementation.
+- `.crewbeectxt/` context remains consistent with implementation.

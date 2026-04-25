@@ -11,6 +11,7 @@ const tsc = path.join(root, "node_modules", "typescript", "bin", "tsc");
 const result = spawnSync(process.execPath, [tsc], { stdio: "inherit" });
 if (result.status !== 0) process.exit(result.status ?? 1);
 await cp(path.join(root, "templates"), path.join(dist, "templates"), { recursive: true });
+await writeFile(path.join(dist, "opencode-plugin.mjs"), "export { default, server, ProjectContextOpenCodePlugin } from './src/integrations/opencode/plugin.js';\n");
 await writeFile(path.join(dist, "BUILD_INFO.json"), JSON.stringify({ builtAt: new Date().toISOString(), format: "esm" }, null, 2));
 
 console.log("Build completed: dist/");

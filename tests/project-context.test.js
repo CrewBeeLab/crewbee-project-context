@@ -19,12 +19,12 @@ test("public package surface stays focused on CrewBee sidecar usage", () => {
   assert.equal(typeof publicApi.requestProjectContextFinalize, "function");
 });
 
-test("init creates a valid .crewbee workspace", async () => {
+test("init creates a valid .crewbeectxt workspace", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-"));
   try {
     const init = await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
-    assert.ok(init.created.includes(".crewbee/STATE.yaml"));
-    const quickstart = await readFile(path.join(root, ".crewbee", "QUICKSTART.md"), "utf8");
+    assert.ok(init.created.includes(".crewbeectxt/STATE.yaml"));
+    const quickstart = await readFile(path.join(root, ".crewbeectxt", "QUICKSTART.md"), "utf8");
     assert.match(quickstart, /Demo Context Quickstart/);
     const validation = await service(root).validateContext();
     assert.equal(validation.ok, true, validation.errors.join("; "));
@@ -75,7 +75,7 @@ test("doctor rejects invalid active step", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-"));
   try {
     await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
-    await writeFile(path.join(root, ".crewbee", "STATE.yaml"), "project_id: demo\nrun_status: running\nactive_cycle: C1\nactive_step_id: S999\nlast_checkpoint: CP-0001\nblockers: []\nnext_actions:\n  - action: Continue\n    owner: active-agent\n    source: PLAN.yaml\n", "utf8");
+    await writeFile(path.join(root, ".crewbeectxt", "STATE.yaml"), "project_id: demo\nrun_status: running\nactive_cycle: C1\nactive_step_id: S999\nlast_checkpoint: CP-0001\nblockers: []\nnext_actions:\n  - action: Continue\n    owner: active-agent\n    source: PLAN.yaml\n", "utf8");
     const validation = await service(root).validateContext();
     assert.equal(validation.ok, false);
     assert.ok(validation.errors.some((error) => error.includes("active_step_id 'S999'")));
@@ -88,7 +88,7 @@ test("doctor rejects missing exact next actions", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-"));
   try {
     await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
-    await writeFile(path.join(root, ".crewbee", "HANDOFF.md"), "# Session Handoff\n\n## Current Snapshot\n\n- Active step: C1/S1.\n", "utf8");
+    await writeFile(path.join(root, ".crewbeectxt", "HANDOFF.md"), "# Session Handoff\n\n## Current Snapshot\n\n- Active step: C1/S1.\n", "utf8");
     const validation = await service(root).validateContext();
     assert.equal(validation.ok, false);
     assert.ok(validation.errors.some((error) => error.includes("Exact Next Actions")));
@@ -97,7 +97,7 @@ test("doctor rejects missing exact next actions", async () => {
   }
 });
 
-test("read rejects paths outside .crewbee", async () => {
+test("read rejects paths outside .crewbeectxt", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-"));
   try {
     await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
@@ -124,7 +124,7 @@ test("updateContext merges state and enforces expectedHash", async () => {
       payload: { last_checkpoint: "CP-0002", next_actions: ["Continue implementation"] }
     });
     assert.equal(result.ok, true);
-    const state = await readFile(path.join(root, ".crewbee", "STATE.yaml"), "utf8");
+    const state = await readFile(path.join(root, ".crewbeectxt", "STATE.yaml"), "utf8");
     assert.match(state, /last_checkpoint: CP-0002/);
     assert.match(state, /action: Continue implementation/);
   } finally {
@@ -147,11 +147,11 @@ test("finalizeSession writes observation and updates handoff/state", async () =>
     assert.equal(result.ok, true);
     assert.equal(result.doctor.ok, true, result.doctor.errors.join("; "));
     assert.equal(result.checkpointId, "CP-0002");
-    assert.ok(result.changedFiles.includes(".crewbee/observations/CP-0002.md"));
+    assert.ok(result.changedFiles.includes(".crewbeectxt/observations/CP-0002.md"));
 
-    const observation = await readFile(path.join(root, ".crewbee", "observations", "CP-0002.md"), "utf8");
-    const handoff = await readFile(path.join(root, ".crewbee", "HANDOFF.md"), "utf8");
-    const state = await readFile(path.join(root, ".crewbee", "STATE.yaml"), "utf8");
+    const observation = await readFile(path.join(root, ".crewbeectxt", "observations", "CP-0002.md"), "utf8");
+    const handoff = await readFile(path.join(root, ".crewbeectxt", "HANDOFF.md"), "utf8");
+    const state = await readFile(path.join(root, ".crewbeectxt", "STATE.yaml"), "utf8");
     assert.match(observation, /Implemented finalize test flow/);
     assert.match(handoff, /Continue S5 hardening/);
     assert.match(state, /last_checkpoint: CP-0002/);
@@ -171,30 +171,30 @@ test("CrewBee bridge stays minimal and disabled when context is absent", async (
     assert.deepEqual(getCrewBeeToolNames(), [
       "project_context_prepare",
       "project_context_search",
-      "project_context_finalize_request"
+      "project_context_finalize"
     ]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("finalize_request does not bootstrap .crewbee without material progress", async () => {
+test("finalize does not bootstrap .crewbeectxt without material progress", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-"));
   try {
-    const finalized = await executeCrewBeeProjectContextTool(root, "project_context_finalize_request", {});
+    const finalized = await executeCrewBeeProjectContextTool(root, "project_context_finalize", {});
     assert.equal(finalized.ok, false);
     assert.equal(finalized.checkpointId, null);
     assert.match(finalized.warnings.join("\n"), /did not include material project progress/);
-    await assert.rejects(() => readFile(path.join(root, ".crewbee", "STATE.yaml"), "utf8"), /ENOENT/);
+    await assert.rejects(() => readFile(path.join(root, ".crewbeectxt", "STATE.yaml"), "utf8"), /ENOENT/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("finalize_request bootstraps .crewbee when context is absent", async () => {
+test("finalize bootstraps .crewbeectxt when context is absent", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-"));
   try {
-    const finalized = await executeCrewBeeProjectContextTool(root, "project_context_finalize_request", {
+    const finalized = await executeCrewBeeProjectContextTool(root, "project_context_finalize", {
       summary: "Create project context after material progress.",
       changed_files: ["src/integrations/crewbee/tool-handlers.ts"],
       next_actions: ["Continue with prepared context"]
@@ -203,14 +203,14 @@ test("finalize_request bootstraps .crewbee when context is absent", async () => 
     assert.equal(finalized.doctor.ok, true, finalized.doctor.errors.join("; "));
     const validation = await service(root).validateContext();
     assert.equal(validation.ok, true, validation.errors.join("; "));
-    const handoff = await readFile(path.join(root, ".crewbee", "HANDOFF.md"), "utf8");
+    const handoff = await readFile(path.join(root, ".crewbeectxt", "HANDOFF.md"), "utf8");
     assert.match(handoff, /Create project context after material progress/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("CrewBee bridge executes prepare, search, and finalize_request tools", async () => {
+test("CrewBee bridge executes prepare, search, and finalize tools", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-"));
   try {
     await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
@@ -224,7 +224,7 @@ test("CrewBee bridge executes prepare, search, and finalize_request tools", asyn
     const search = await executeCrewBeeProjectContextTool(root, "project_context_search", { goal: "project objective" });
     assert.match(search.text, /Project Context Search Result/);
 
-    const finalized = await executeCrewBeeProjectContextTool(root, "project_context_finalize_request", {
+    const finalized = await executeCrewBeeProjectContextTool(root, "project_context_finalize", {
       summary: "Bridge finalize executed.",
       nextActions: ["Continue minimal integration"]
     });
@@ -233,4 +233,56 @@ test("CrewBee bridge executes prepare, search, and finalize_request tools", asyn
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("OpenCode plugin exposes hidden maintainer and three tools without compaction hook", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-"));
+  try {
+    const client = {
+      session: {
+        async create() {
+          return { id: "maintainer-session" };
+        },
+        async prompt() {
+          return {};
+        },
+        async messages() {
+          return [{ role: "assistant", parts: [{ type: "text", text: "Maintainer result" }] }];
+        }
+      }
+    };
+    const hooks = await publicApi.ProjectContextOpenCodePlugin.server({ client, worktree: root, directory: root });
+    assert.equal("experimental.session.compacting" in hooks, false);
+    assert.deepEqual(Object.keys(hooks.tool).sort(), [
+      "project_context_finalize",
+      "project_context_prepare",
+      "project_context_search"
+    ]);
+
+    const config = { agent: { "coding-leader": { mode: "primary", permission: {} } } };
+    await hooks.config(config);
+    assert.equal(config.agent["project-context-maintainer"].hidden, true);
+    assert.equal(config.agent["project-context-maintainer"].mode, "subagent");
+    assert.equal(config.agent["coding-leader"].permission.task["project-context-maintainer"], "deny");
+
+    await assert.rejects(() => hooks["tool.execute.before"]({ tool: "task", sessionID: "s", callID: "c" }, { args: { subagent_type: "project-context-maintainer" } }), /Do not invoke/);
+    const output = await hooks.tool.project_context_prepare.execute({ goal: "Understand current plan." }, {
+      sessionID: "parent-session",
+      messageID: "message",
+      agent: "coding-leader",
+      directory: root,
+      worktree: root,
+      abort: new AbortController().signal,
+      metadata() {}
+    });
+    assert.equal(output, "Maintainer result");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("bundled OpenCode server entrypoint matches package plugin shape", async () => {
+  const mod = await import("../dist/opencode-plugin.mjs");
+  assert.equal(typeof mod.default.server, "function");
+  assert.equal(typeof mod.server, "function");
 });

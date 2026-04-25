@@ -10,6 +10,7 @@ export type {
 export { CrewBeeProjectContextBridge, CrewBeeProjectContextExtension } from "./integrations/crewbee/extension.js";
 export { PROJECT_CONTEXT_MAINTAINER_AGENT } from "./integrations/crewbee/internal-agent.js";
 export { CREWBEE_PROJECT_CONTEXT_TOOL_NAMES } from "./integrations/crewbee/tool-definitions.js";
+export { ProjectContextOpenCodePlugin } from "./integrations/opencode/plugin.js";
 
 import type { PrepareContextRequest, ProjectContextSearchRequest, SessionSummary } from "./core/types.js";
 import { CrewBeeProjectContextExtension } from "./integrations/crewbee/extension.js";
