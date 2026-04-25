@@ -5,19 +5,18 @@
   "type": "module",
   "license": "MIT",
   "private": false,
-  "main": "./dist/opencode-plugin.mjs",
+  "main": "./opencode-plugin.mjs",
   "exports": {
-    ".": {
-      "types": "./dist/src/index.d.ts",
-      "import": "./dist/src/index.js"
-    },
-    "./server": {
-      "types": "./dist/src/integrations/opencode/plugin.d.ts",
-      "import": "./dist/opencode-plugin.mjs"
-    }
+    ".": "./opencode-plugin.mjs",
+    "./server": "./opencode-plugin.mjs"
+  },
+  "bin": {
+    "crewbee-project-context": "./bin/crewbee-project-context.js"
   },
   "files": [
     "dist/",
+    "opencode-plugin.mjs",
+    "bin/",
     "README.md",
     "LICENSE"
   ],
@@ -25,8 +24,11 @@
     "diagnostics": "node scripts/check-syntax.mjs && npm run build && node scripts/doctor-repo.mjs",
     "typecheck": "tsc --noEmit && npm run build && node scripts/check-types.mjs",
     "build": "node scripts/build.mjs",
+    "pack:local": "npm run build && node scripts/pack-local.mjs",
+    "install:local:user": "npm run pack:local && node ./bin/crewbee-project-context.js install --source local --local-tarball ./.artifacts/local/crewbee-project-context-local.tgz",
+    "install:registry:user": "node ./bin/crewbee-project-context.js install --source registry",
     "test": "npm run build && node --test tests/*.test.js",
-    "doctor": "npm run build && node dist/src/cli/main.js doctor",
+    "doctor": "node ./bin/crewbee-project-context.js doctor",
     "primer": "npm run build && node dist/src/cli/main.js primer"
   },
   "engines": {
@@ -37,6 +39,7 @@
     "typescript": "^5.8.0"
   },
   "dependencies": {
-    "@opencode-ai/plugin": "^1.2.24"
+    "@opencode-ai/plugin": "^1.2.24",
+    "yaml": "^2.8.2"
   }
 }

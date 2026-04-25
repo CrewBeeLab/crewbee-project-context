@@ -69,7 +69,7 @@ cycles:
           - no project_context_read or scaffold path menu is exposed to the main agent
       - id: S9
         title: Match CrewBee user-level plugin publish and install model
-        status: active
+        status: completed
         acceptance:
           - build creates dist/opencode-plugin.mjs from the OpenCode adapter entrypoint
           - package main and exports include the OpenCode server entrypoint in the same style as CrewBee
@@ -88,7 +88,7 @@ cycles:
           - integration does not change CrewBee Team definitions or force CrewBee Core dependency on scaffold internals
       - id: S11
         title: End-to-end OpenCode startup smoke verification
-        status: planned
+        status: active
         acceptance:
           - install project-context into OpenCode user-level workspace with the same operational shape as CrewBee
           - OpenCode startup loads both crewbee and project-context plugins without plugin entrypoint errors

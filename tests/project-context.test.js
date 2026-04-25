@@ -1,11 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import * as publicApi from "../dist/src/index.js";
 import { buildCrewBeePromptFragment, executeCrewBeeProjectContextTool, getCrewBeeToolNames, prepareProjectContext } from "../dist/src/index.js";
 import { ProjectContextService } from "../dist/src/service/project-context-service.js";
+import { hasRecommendedPluginOrder, runInstallDoctor, upsertProjectContextPluginEntry } from "../dist/src/install/index.js";
 
 const service = (root) => new ProjectContextService(root);
 
@@ -282,7 +283,47 @@ test("OpenCode plugin exposes hidden maintainer and three tools without compacti
 });
 
 test("bundled OpenCode server entrypoint matches package plugin shape", async () => {
+  const rootMod = await import(`../opencode-plugin.mjs?test=${Date.now()}`);
   const mod = await import("../dist/opencode-plugin.mjs");
+  assert.equal(typeof rootMod.default.server, "function");
+  assert.equal(typeof rootMod.server, "function");
   assert.equal(typeof mod.default.server, "function");
   assert.equal(typeof mod.server, "function");
+});
+
+test("install config writer keeps project context after CrewBee", () => {
+  const config = { plugin: ["crewbee-project-context", "crewbee"] };
+  const update = upsertProjectContextPluginEntry(config);
+  assert.equal(update.changed, true);
+  assert.deepEqual(config.plugin, ["crewbee", "crewbee-project-context"]);
+  assert.equal(hasRecommendedPluginOrder(config), true);
+});
+
+test("install doctor verifies plugin entry, order, hidden maintainer, and tools", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-install-"));
+  try {
+    const installRoot = path.join(root, "install-root");
+    const configPath = path.join(root, "config", "opencode.json");
+    const installedPackageRoot = path.join(installRoot, "node_modules", "crewbee-project-context");
+    await mkdir(installedPackageRoot, { recursive: true });
+    await mkdir(path.dirname(configPath), { recursive: true });
+    await writeFile(path.join(installRoot, "package.json"), JSON.stringify({ name: "opencode-plugin-workspace", private: true }, null, 2), "utf8");
+    await writeFile(path.join(installedPackageRoot, "package.json"), JSON.stringify({ name: "crewbee-project-context", version: "0.1.0", type: "module" }, null, 2), "utf8");
+    await writeFile(configPath, JSON.stringify({ plugin: ["crewbee", "crewbee-project-context"] }, null, 2), "utf8");
+    await cp(path.resolve("dist"), path.join(installedPackageRoot, "dist"), { recursive: true });
+    await cp(path.resolve("opencode-plugin.mjs"), path.join(installedPackageRoot, "opencode-plugin.mjs"));
+    await cp(path.resolve("node_modules", "@opencode-ai", "plugin"), path.join(installRoot, "node_modules", "@opencode-ai", "plugin"), { recursive: true });
+    await cp(path.resolve("node_modules", "zod"), path.join(installRoot, "node_modules", "zod"), { recursive: true });
+
+    const result = await runInstallDoctor({ installRoot, configPath });
+    assert.equal(result.healthy, true, JSON.stringify(result, null, 2));
+    assert.equal(result.hasRecommendedPluginOrder, true);
+    assert.equal(result.hasHiddenMaintainerAgent, true);
+    assert.equal(result.hasThreeToolSurface, true);
+    assert.equal(result.noProjectContextReadTool, true);
+    assert.equal(result.noCompactionHook, true);
+    assert.equal(result.maintainerTaskDeniedForPrimaryAgent, true);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

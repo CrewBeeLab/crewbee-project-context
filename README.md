@@ -50,10 +50,27 @@ npm install
 npm run diagnostics
 npm test
 npm run build
-npm run primer
+npm run pack:local
+npm run install:local:user
+npm run doctor
 ```
 
-In product usage, install `crewbee` and `crewbee-project-context` as OpenCode plugins and start OpenCode. Project Context detects `.crewbeectxt/`, injects a compact capsule, and registers the minimal tools automatically. Internal CLI commands remain available for development and CI diagnostics.
+In product usage, install `crewbee` and `crewbee-project-context` as sibling OpenCode plugins and start OpenCode. Recommended OpenCode plugin order is:
+
+```json
+{
+  "plugin": ["crewbee", "crewbee-project-context"]
+}
+```
+
+Project Context detects `.crewbeectxt/`, injects a compact capsule, and registers the minimal tools automatically. The install CLI targets the OpenCode user-level plugin workspace; scaffold init/read/update is not exposed as the main user workflow.
+
+Useful development-only commands:
+
+```bash
+npm run primer
+node dist/src/cli/main.js context:doctor
+```
 
 ## `.crewbeectxt/` workspace
 
@@ -90,4 +107,4 @@ During development, scaffold source documents live under `templates/crewbeectxt-
 
 ## Current implementation status
 
-This version uses a TypeScript implementation with a small object-oriented service structure and an OpenCode plugin adapter. The framework direction is OpenCode + CrewBee plug-and-play integration with minimal tool surface: prepare, search, and finalize. `.crewbeectxt/` is the product context directory.
+This version uses a TypeScript implementation with a small object-oriented service structure and an OpenCode plugin adapter. It ships a root `opencode-plugin.mjs` package entrypoint, hidden `project-context-maintainer` config injection, three OpenCode tools, direct Task maintainer guard, and CrewBee-style user-level install / doctor flow. `.crewbeectxt/` is the product context directory.

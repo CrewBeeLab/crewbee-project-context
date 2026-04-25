@@ -51,10 +51,24 @@ Project Context uses only:
 
 ```text
 config
+tool
 experimental.chat.system.transform
+tool.execute.before
 ```
 
 It intentionally does not use `experimental.session.compacting`; compaction output already carries necessary session context and Project Context should remain passive until a tool is called.
+
+## Install / doctor flow
+
+Project Context follows the same operational shape as CrewBee for local user-level OpenCode installation:
+
+```bash
+npm run pack:local
+npm run install:local:user
+npm run doctor
+```
+
+The installer writes the canonical package-name plugin entry `crewbee-project-context` into OpenCode config. If `crewbee` is already present, the project-context entry is placed after it. Doctor validates the installed package entrypoint, plugin order, hidden maintainer config, task deny, three-tool surface, absence of `project_context_read`, and absence of `experimental.session.compacting`.
 
 ## Runtime rule
 

@@ -1,9 +1,7 @@
 node_modules/
 dist/
 coverage/
-.crewbee/cache/
-.crewbee/tmp/
-.crewbee/*.lock
+.artifacts/
 .crewbeectxt/cache/
 .crewbeectxt/tmp/
 .crewbeectxt/*.lock

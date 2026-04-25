@@ -1,13 +1,10 @@
 project_id: crewbee-project-context
 run_status: running
-active_cycle: C1
-active_step_id: S7
-last_checkpoint: CP-0012
+active_cycle: C2
+active_step_id: S11
+last_checkpoint: CP-0013
 blockers: []
 next_actions:
-  - action: Implement CrewBee-style user-level install and doctor flow for crewbee-project-context.
-    owner: active-agent
-    source: updateContext
   - action: Run an end-to-end OpenCode startup smoke test with plugin config [crewbee, crewbee-project-context].
     owner: active-agent
     source: updateContext

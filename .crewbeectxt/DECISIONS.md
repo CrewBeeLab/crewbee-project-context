@@ -4,7 +4,7 @@
 
 - Status: accepted
 - Context: The product is positioned as a CrewBee-native project context layer and needs one clear production context directory name.
-- Decision: Use `.crewbee/` as the only production project context workspace directory. Do not implement directory migration as a product feature.
+- Decision: Use `.crewbeectxt/` as the only production project context workspace directory. Do not implement directory migration as a product feature.
 - Consequences:
   - Pros: Clear product identity, stable CrewBee detection target, less ambiguity with other agent tools.
   - Cons: Less generic naming for non-CrewBee users.
@@ -13,7 +13,7 @@
 
 - Status: accepted
 - Context: Project context should help CrewBee agents recover context, but CrewBee Core should remain focused on team projection and runtime integration.
-- Decision: Build this repository as standalone `@crewbee/project-context`; CrewBee integrates it optionally.
+- Decision: Build this repository as standalone `crewbee-project-context`; CrewBee integrates it optionally as a sibling OpenCode plugin.
 - Consequences:
   - Pros: Lower coupling, independent release/testing, usable outside CrewBee.
   - Cons: Integration bridge must be maintained across package boundaries.
@@ -31,7 +31,7 @@
 
 - Status: accepted
 - Context: The repository needs both its own production project context and scaffold source documents for initializing other projects.
-- Decision: Keep this repository's live context in `.crewbee/`, but store scaffold source documents under `templates/crewbee-template/` so they are explicitly marked as templates during development.
+- Decision: Keep this repository's live context in `.crewbeectxt/`, but store scaffold source documents under `templates/crewbeectxt-template/` so they are explicitly marked as templates during development.
 - Consequences:
   - Pros: Avoids confusing source templates with production context workspaces.
   - Cons: Template paths differ from the generated runtime directory name.
@@ -44,3 +44,12 @@
 - Consequences:
   - Pros: Keeps the tool transparent, easy to verify, and cheap for agents to use.
   - Cons: Some advanced automation must wait until a real workflow proves it is necessary.
+
+## D-0006
+
+- Status: accepted
+- Context: CrewBee already owns Agent Team projection and OpenCode runtime binding, while Project Context should own only engineering context memory and handoff state.
+- Decision: Ship `crewbee-project-context` as a sibling OpenCode plugin with root `opencode-plugin.mjs`, hidden `project-context-maintainer`, only `project_context_prepare/search/finalize` visible tools, and CrewBee-style user-level install / doctor flow.
+- Consequences:
+  - Pros: Keeps CrewBee Core decoupled, preserves main-agent permissions, and makes project context installation and validation operationally consistent with CrewBee.
+  - Cons: A live OpenCode startup smoke test remains required before release confidence is complete.
