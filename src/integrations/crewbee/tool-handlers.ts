@@ -27,9 +27,9 @@ export class CrewBeeProjectContextToolHandlers {
     const summary: Parameters<ProjectContextService["finalizeSession"]>[0] = {};
     const title = this.optionalString(input, "title");
     const summaryText = this.optionalString(input, "summary");
-    const changedFiles = this.stringArray(input, "changedFiles");
+    const changedFiles = this.stringArray(input, "changedFiles") ?? this.stringArray(input, "changed_files");
     const verification = this.stringArray(input, "verification");
-    const nextActions = this.stringArray(input, "nextActions");
+    const nextActions = this.stringArray(input, "nextActions") ?? this.stringArray(input, "next_actions");
     const blockers = this.stringArray(input, "blockers");
     if (title !== undefined) summary.title = title;
     if (summaryText !== undefined) summary.summary = summaryText;

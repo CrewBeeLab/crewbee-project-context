@@ -109,6 +109,7 @@ export interface FinalizeResult {
   checkpointId: string | null;
   changedFiles: string[];
   warnings: string[];
+  doctor: ValidationResult;
   summary?: SessionSummary;
 }
 

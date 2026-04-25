@@ -19,6 +19,17 @@ export class SessionFinalizer {
     const changedFiles: string[] = [];
     const warnings: string[] = [];
     if (!(await this.store.exists(contextDir))) {
+      if (!this.hasMaterialProgress(summary)) {
+        const doctor = await new ProjectContextWorkspace(this.store, this.parser).validate();
+        return {
+          ok: false,
+          checkpointId: null,
+          changedFiles,
+          warnings: [`Skipped ${DEFAULT_CONTEXT_DIR}/ bootstrap because finalize_request did not include material project progress.`],
+          doctor,
+          summary
+        };
+      }
       const projectName = path.basename(this.store.paths.root) || "Project";
       const projectId = projectName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "project";
       const scaffold = new ProjectContextWorkspace(this.store, this.parser);
@@ -63,7 +74,34 @@ export class SessionFinalizer {
     }
     if ((summary.decisions ?? []).length > 0) changedFiles.push(`${DEFAULT_CONTEXT_DIR}/DECISIONS.md`);
 
-    return { ok: true, checkpointId, changedFiles: [...new Set(changedFiles)], warnings, summary };
+    const doctor = await new ProjectContextWorkspace(this.store, this.parser).validate();
+    const doctorWarnings = doctor.warnings.map((warning) => `doctor warning: ${warning}`);
+    const doctorErrors = doctor.errors.map((error) => `doctor error: ${error}`);
+
+    return {
+      ok: doctor.ok,
+      checkpointId,
+      changedFiles: [...new Set(changedFiles)],
+      warnings: [...warnings, ...doctorWarnings, ...doctorErrors],
+      doctor,
+      summary
+    };
+  }
+
+  private hasMaterialProgress(summary: SessionSummary): boolean {
+    if (this.hasText(summary.title) || this.hasText(summary.summary)) return true;
+    return [
+      summary.changedFiles,
+      summary.verification,
+      summary.nextActions,
+      summary.blockers,
+      summary.memoryEntries,
+      summary.decisions
+    ].some((items) => Array.isArray(items) && items.length > 0);
+  }
+
+  private hasText(value: string | undefined): boolean {
+    return typeof value === "string" && value.trim().length > 0;
   }
 
   private async nextCheckpointId(observationsDir: string, lastCheckpoint: string | null): Promise<string> {

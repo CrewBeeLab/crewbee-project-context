@@ -5,9 +5,6 @@
   "type": "module",
   "license": "MIT",
   "private": false,
-  "bin": {
-    "crewbee-context": "dist/src/cli/main.js"
-  },
   "exports": {
     ".": {
       "types": "./dist/src/index.d.ts",

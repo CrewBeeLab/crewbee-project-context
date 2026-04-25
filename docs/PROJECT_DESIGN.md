@@ -16,7 +16,7 @@ This means:
 
 - no dependency unless it removes more complexity than it adds;
 - no new file type unless Markdown/YAML-like files cannot express the state;
-- no background worker while explicit CLI/API flows are sufficient;
+- no background worker while the runtime extension and internal service flows are sufficient;
 - no database or vector index before plain files and local search are proven insufficient;
 - no CrewBee Core coupling for a feature that can live in an adapter/plugin bridge;
 - no abstraction layer, schema file, or generated artifact that is not used by at least one real command or integration path.
@@ -121,7 +121,7 @@ Development is step-based, not calendar-based.
 
 - Rename/reposition to `crewbee-project-context`.
 - Add `.crewbee/` workspace and documentation.
-- Add dependency-free CLI/API skeleton.
+- Add dependency-free internal CLI/service skeleton.
 
 ### S2: Scaffold MVP
 
@@ -133,10 +133,10 @@ Development is step-based, not calendar-based.
 
 - Build a budgeted context primer from state, plan, handoff, decisions, and memory.
 
-### S4: Read/Search MVP
+### S4: Internal Read/Search MVP
 
-- Safe `.crewbee/` reads.
-- Local text search over context files.
+- Safe internal `.crewbee/` reads.
+- Maintainer-controlled local text search over context files.
 
 ### S5: Update/Finalize MVP
 

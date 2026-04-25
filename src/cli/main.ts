@@ -1,28 +1,16 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
-import { buildPrimer, detect, finalizeSession, initProjectContext, readContextFile, searchContext, updateContext, validateContext } from "../index.js";
-import type { ContextPatch, SessionSummary } from "../core/types.js";
+import { ProjectContextService } from "../service/project-context-service.js";
 
 async function main(argv: string[]): Promise<void> {
   const [command, ...args] = argv;
+  const service = new ProjectContextService(process.cwd());
   try {
     switch (command) {
-      case "init":
-        return printJson(await initProjectContext(process.cwd(), parseInitOptions(args)));
       case "doctor":
-        return printDoctor(await validateContext(process.cwd()));
+        return printDoctor(await service.validateContext());
       case "primer":
-        return printPrimer(await buildPrimer(process.cwd(), parsePrimerOptions(args)));
-      case "read":
-        return printRead(await readContextFile(process.cwd(), args[0] ?? ".crewbee/HANDOFF.md"));
-      case "search":
-        return printJson(await searchContext(process.cwd(), args.join(" ")));
-      case "update":
-        return printJson(await updateContext(process.cwd(), parseUpdatePatch(args)));
-      case "finalize":
-        return printJson(await finalizeSession(process.cwd(), parseFinalizeSummary(args)));
-      case "detect":
-        return printJson(await detect(process.cwd()));
+        return printPrimer(await service.buildPrimer(parsePrimerOptions(args)));
       case "help":
       case undefined:
         return printHelp();
@@ -35,22 +23,6 @@ async function main(argv: string[]): Promise<void> {
   }
 }
 
-function parseInitOptions(args: string[]): { projectName?: string; projectId?: string; force?: boolean } {
-  const options: { projectName?: string; projectId?: string; force?: boolean } = {};
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-    if (arg === "--project-name") {
-      const value = args[++index];
-      if (value !== undefined) options.projectName = value;
-    } else if (arg === "--project-id") {
-      const value = args[++index];
-      if (value !== undefined) options.projectId = value;
-    }
-    else if (arg === "--force") options.force = true;
-  }
-  return options;
-}
-
 function parsePrimerOptions(args: string[]): { budgetTokens?: number; memoryLimit?: number } {
   const options: { budgetTokens?: number; memoryLimit?: number } = {};
   for (let index = 0; index < args.length; index += 1) {
@@ -58,47 +30,6 @@ function parsePrimerOptions(args: string[]): { budgetTokens?: number; memoryLimi
     if (args[index] === "--memory-limit") options.memoryLimit = Number(args[++index]);
   }
   return options;
-}
-
-function parseUpdatePatch(args: string[]): ContextPatch {
-  const [target, operation = "merge", ...rest] = args;
-  if (!isPatchTarget(target)) throw new Error("update target must be state, handoff, memory, or decision");
-  if (!isPatchOperation(operation)) throw new Error("update operation must be merge, replace, or append");
-  const payload: Record<string, string> = {};
-  let expectedHash: string | undefined;
-  for (let index = 0; index < rest.length; index += 1) {
-    const arg = rest[index];
-    if (arg === "--expected-hash") expectedHash = rest[++index];
-    else if (arg?.startsWith("--")) payload[arg.slice(2).replaceAll("-", "_")] = rest[++index] ?? "";
-  }
-  return expectedHash ? { target, operation, payload, expectedHash } : { target, operation, payload };
-}
-
-function parseFinalizeSummary(args: string[]): SessionSummary {
-  const summary: SessionSummary = { changedFiles: [], verification: [], nextActions: [], blockers: [] };
-  for (let index = 0; index < args.length; index += 1) {
-    const arg = args[index];
-    if (arg === "--title") {
-      const value = args[++index];
-      if (value !== undefined) summary.title = value;
-    } else if (arg === "--summary") {
-      const value = args[++index];
-      if (value !== undefined) summary.summary = value;
-    }
-    else if (arg === "--changed-file") summary.changedFiles?.push(args[++index] ?? "");
-    else if (arg === "--verification") summary.verification?.push(args[++index] ?? "");
-    else if (arg === "--next-action") summary.nextActions?.push(args[++index] ?? "");
-    else if (arg === "--blocker") summary.blockers?.push(args[++index] ?? "");
-  }
-  return summary;
-}
-
-function isPatchTarget(value: string | undefined): value is ContextPatch["target"] {
-  return value === "state" || value === "handoff" || value === "memory" || value === "decision";
-}
-
-function isPatchOperation(value: string): value is NonNullable<ContextPatch["operation"]> {
-  return value === "merge" || value === "replace" || value === "append";
 }
 
 function printJson(value: unknown): void {
@@ -115,13 +46,9 @@ function printPrimer(primer: { text: string; warnings: string[] }): void {
   if (primer.warnings.length > 0) console.error(`Warnings: ${primer.warnings.join("; ")}`);
 }
 
-function printRead(result: { text: string }): void {
-  console.log(result.text);
-}
-
 async function printHelp(): Promise<void> {
   const packageJson = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8")) as { name: string; version: string };
-  console.log(`${packageJson.name} ${packageJson.version}\n\nCommands:\n  init [--project-name name] [--project-id id] [--force]\n  doctor\n  primer [--budget 1000]\n  read .crewbee/HANDOFF.md\n  search <query>\n  update <state|handoff|memory|decision> [merge|replace|append] --key value\n  finalize --summary text [--verification text] [--next-action text]\n  detect`);
+  console.log(`${packageJson.name} ${packageJson.version}\n\nInternal commands:\n  doctor\n  primer [--budget 1000] [--memory-limit 3]\n\nProduct usage is automatic through the CrewBee/OpenCode runtime extension; this CLI is only for local diagnostics.`);
 }
 
 await main(process.argv.slice(2));

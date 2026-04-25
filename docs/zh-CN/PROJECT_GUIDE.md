@@ -173,12 +173,14 @@ src/
   maintainer/           内部 Context Maintainer、search、patch、finalize
   service/              ProjectContextService 门面
   integrations/crewbee/ CrewBee extension/prompt/tools/internal-agent
-  cli/                  internal debug/doctor/simulate only
+  cli/                  internal doctor/primer diagnostics only
 ```
 
 当前 TypeScript 实现采用小型 OOP 结构：`ProjectContextService` 协调 Workspace、Capsule、Maintainer、Search、Patch、Finalizer 与 CrewBee Extension。
 
 当前包内提供 `ProjectContextMaintainer` 作为最小内部执行器；在 CrewBee/OpenCode 运行时中，它应被映射为独立 sub session / internal agent。
+
+当前仓库已经完成 sidecar package 与 adapter-facing extension；真正的 OpenCode plugin hook、CrewBee runloop tool registration 与 internal sub session 映射需要在 CrewBee 运行时仓库中接入。
 
 ## 10. CrewBee + OpenCode 集成
 

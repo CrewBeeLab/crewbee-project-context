@@ -53,3 +53,17 @@ cycles:
           - no new abstraction is added without a real caller
           - no new dependency is added without removing more complexity than it adds
           - next implementation step has explicit user or release acceptance criteria
+  - id: C2
+    title: Real CrewBee/OpenCode runtime integration
+    status: planned
+    steps:
+      - id: S8
+        title: Wire project-context sidecar into the actual CrewBee OpenCode plugin runloop
+        status: planned
+        acceptance:
+          - CrewBee OpenCode plugin loads @crewbee/project-context automatically when installed
+          - system prompt transform injects only Runtime Rule plus compact Context Capsule
+          - OpenCode tool registration exposes only project_context_prepare, project_context_search, and project_context_finalize_request
+          - internal project-context-maintainer is mapped to a delegated sub session or internal agent execution path
+          - absent .crewbee workspaces stay ephemeral until finalize_request includes material project progress
+          - no project_context_read or scaffold path menu is exposed to the main agent
