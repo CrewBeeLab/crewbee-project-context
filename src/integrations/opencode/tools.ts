@@ -2,6 +2,7 @@ import { tool } from "@opencode-ai/plugin";
 import { ProjectContextService } from "../../service/project-context-service.js";
 import { MaintainerSubsessionRunner } from "./subsession-runner.js";
 import type { OpenCodeClientLike, OpenCodeToolContextLike } from "./types.js";
+import { redactPrivateContextPaths } from "./visibility.js";
 
 const PREPARE_TOOL_NAME = "project_context_prepare";
 const SEARCH_TOOL_NAME = "project_context_search";
@@ -22,7 +23,18 @@ function materialPayload(summary: string | undefined, changedFiles: string[] | u
 }
 
 function failed(kind: string, reason: string): string {
-  return `Project Context ${kind} failed:\n- reason: ${reason}`;
+  return `Project Context ${kind} failed:\n- reason: ${redactPrivateContextPaths(reason)}`;
+}
+
+function finalized(): string {
+  return [
+    "Project Context finalized:",
+    "- project state updated",
+    "- next-session handoff updated",
+    "- high-signal memory updated when applicable",
+    "- session observation recorded",
+    "- consistency checks passed"
+  ].join("\n");
 }
 
 export function createProjectContextTools(input: { client: OpenCodeClientLike; service: ProjectContextService }) {
@@ -48,8 +60,8 @@ export function createProjectContextTools(input: { client: OpenCodeClientLike; s
           ...(args.task_type ? { taskType: args.task_type } : {}),
           ...(args.budget ? { budget: args.budget } : {})
         });
-        ctx.metadata({ title: "Project Context Prepare", metadata: { ok: result.ok, sessionID: result.sessionID } });
-        return result.ok ? result.output : failed("prepare", result.error ?? "maintainer subsession failed");
+        ctx.metadata({ title: "Project Context Prepare", metadata: { ok: result.ok } });
+        return result.ok ? redactPrivateContextPaths(result.output) : failed("prepare", result.error ?? "maintainer subsession failed");
       }
     }),
 
@@ -69,8 +81,8 @@ export function createProjectContextTools(input: { client: OpenCodeClientLike; s
           goal: args.goal,
           ...(args.budget ? { budget: args.budget } : {})
         });
-        ctx.metadata({ title: "Project Context Search", metadata: { ok: result.ok, sessionID: result.sessionID } });
-        return result.ok ? result.output : failed("search", result.error ?? "maintainer subsession failed");
+        ctx.metadata({ title: "Project Context Search", metadata: { ok: result.ok } });
+        return result.ok ? redactPrivateContextPaths(result.output) : failed("search", result.error ?? "maintainer subsession failed");
       }
     }),
 
@@ -96,9 +108,9 @@ export function createProjectContextTools(input: { client: OpenCodeClientLike; s
         if (!result.ok) return failed("finalize", result.error ?? "maintainer subsession failed");
 
         const validation = await input.service.validateContext();
-        ctx.metadata({ title: "Project Context Finalize", metadata: { ok: validation.ok, sessionID: result.sessionID } });
-        if (!validation.ok) return failed("finalize", `doctor failed: ${validation.errors.join("; ")}`);
-        return result.output;
+        ctx.metadata({ title: "Project Context Finalize", metadata: { ok: validation.ok } });
+        if (!validation.ok) return failed("finalize", "project context consistency check failed");
+        return finalized();
       }
     })
   };

@@ -7,5 +7,5 @@ export async function buildCrewBeeProjectContextPromptFragment(service: ProjectC
     return { enabled: false, text: "", sourceFiles: [], warnings: ["Project Context not detected."] };
   }
   const capsule = await service.buildPrimer();
-  return { enabled: true, text: capsule.text, sourceFiles: capsule.sourceFiles, warnings: capsule.warnings };
+  return { enabled: true, text: capsule.text, sourceFiles: [], warnings: capsule.warnings };
 }

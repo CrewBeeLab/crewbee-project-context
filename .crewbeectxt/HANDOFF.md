@@ -4,12 +4,12 @@
 
 - Active step: C2/S11 — End-to-end OpenCode startup smoke verification.
 - Run status: running.
-- Last checkpoint: CP-0013.
+- Last checkpoint: CP-0014.
 - Blockers: none known.
 
 ## What Changed This Session
 
-Reviewed the latest full implementation plan and closed the remaining implementation gap: CrewBee-style user-level install / pack-local / doctor flow now exists, package entrypoint is root `opencode-plugin.mjs`, OpenCode config writes canonical `crewbee-project-context` after `crewbee`, and doctor validates plugin entry, order, hidden maintainer, task deny, three-tool surface, no read tool, and no compaction hook.
+Implemented the private workspace visibility supplement: main-agent system/capsule text and capsule metadata no longer expose the workspace path, non-maintainer direct tool args containing private workspace paths are blocked, non-maintainer tool outputs are redacted, finalize tool output is path-free, watcher ignores private cache/tmp/lock noise, install doctor validates guard/redactor hooks, and tests cover these boundaries.
 
 ## Open Blockers
 
@@ -25,7 +25,7 @@ Reviewed the latest full implementation plan and closed the remaining implementa
 
 1. Run an end-to-end OpenCode startup smoke test with plugin config [crewbee, crewbee-project-context].
 2. Validate maintainer subsession behavior against a live OpenCode runtime.
-3. If smoke verification passes, prepare release docs for npm registry install.
+3. Resume v0.1.0 GitHub release after committing the private workspace visibility changes; note that `gh` CLI is unavailable in this environment.
 
 ## References
 

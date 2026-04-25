@@ -39,7 +39,10 @@ test("primer includes project and active step", async () => {
   try {
     await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
     const primer = await service(root).buildPrimer({ budgetTokens: 1000 });
-    assert.match(primer.text, /Project Context detected/);
+    assert.match(primer.text, /Project Context: available/);
+    assert.doesNotMatch(primer.text, /\.crewbeectxt/);
+    assert.deepEqual(primer.sourceFiles, []);
+    assert.equal(primer.warnings.some((warning) => warning.includes(".crewbeectxt")), false);
     assert.match(primer.text, /Demo/);
     assert.match(primer.text, /S1/);
     assert.ok(primer.estimatedTokens <= 1000);
@@ -66,7 +69,8 @@ test("prepare returns a task context brief", async () => {
     await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
     const brief = await prepareProjectContext(root, "Implement minimal CrewBee Project Context integration.");
     assert.match(brief.text, /Task Context Brief/);
-    assert.match(brief.text, /Project Context detected/);
+    assert.match(brief.text, /Project Context: available/);
+    assert.doesNotMatch(brief.text, /\.crewbeectxt/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -217,7 +221,8 @@ test("CrewBee bridge executes prepare, search, and finalize tools", async () => 
     await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
     const fragment = await buildCrewBeePromptFragment(root);
     assert.equal(fragment.enabled, true);
-    assert.match(fragment.text, /Project Context detected/);
+    assert.match(fragment.text, /Project Context: available/);
+    assert.doesNotMatch(fragment.text, /\.crewbeectxt/);
 
     const prepared = await executeCrewBeeProjectContextTool(root, "project_context_prepare", { goal: "Use project context with minimal attention." });
     assert.match(prepared.text, /Task Context Brief/);
@@ -248,7 +253,7 @@ test("OpenCode plugin exposes hidden maintainer and three tools without compacti
           return {};
         },
         async messages() {
-          return [{ role: "assistant", parts: [{ type: "text", text: "Maintainer result" }] }];
+          return [{ role: "assistant", parts: [{ type: "text", text: "Maintainer result from .crewbeectxt/HANDOFF.md" }] }];
         }
       }
     };
@@ -265,8 +270,15 @@ test("OpenCode plugin exposes hidden maintainer and three tools without compacti
     assert.equal(config.agent["project-context-maintainer"].hidden, true);
     assert.equal(config.agent["project-context-maintainer"].mode, "subagent");
     assert.equal(config.agent["coding-leader"].permission.task["project-context-maintainer"], "deny");
+    assert.ok(config.watcher.ignore.includes(".crewbeectxt/cache/**"));
 
     await assert.rejects(() => hooks["tool.execute.before"]({ tool: "task", sessionID: "s", callID: "c" }, { args: { subagent_type: "project-context-maintainer" } }), /Do not invoke/);
+    await assert.rejects(() => hooks["tool.execute.before"]({ tool: "read", sessionID: "s", callID: "c", agent: "coding-leader" }, { args: { filePath: ".crewbeectxt/HANDOFF.md" } }), /Project Context workspace is private/);
+    await assert.rejects(() => hooks["tool.execute.before"]({ tool: "read", sessionID: "s", callID: "c", agent: "coding-leader" }, { args: { ".crewbeectxt/HANDOFF.md": true } }), /Project Context workspace is private/);
+    await hooks["tool.execute.before"]({ tool: "read", sessionID: "s", callID: "c", agent: "project-context-maintainer" }, { args: { filePath: ".crewbeectxt/HANDOFF.md" } });
+    const redacted = { result: { ".crewbeectxt/HANDOFF.md": "listed .crewbeectxt/HANDOFF.md and src/index.ts" } };
+    await hooks["tool.execute.after"]({ tool: "bash", sessionID: "s", callID: "c", agent: "coding-leader" }, redacted);
+    assert.deepEqual(redacted.result, { "[project-context-private]": "listed [project-context-private] and src/index.ts" });
     const output = await hooks.tool.project_context_prepare.execute({ goal: "Understand current plan." }, {
       sessionID: "parent-session",
       messageID: "message",
@@ -276,7 +288,19 @@ test("OpenCode plugin exposes hidden maintainer and three tools without compacti
       abort: new AbortController().signal,
       metadata() {}
     });
-    assert.equal(output, "Maintainer result");
+    assert.equal(output, "Maintainer result from [project-context-private]");
+    await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
+    const finalizeOutput = await hooks.tool.project_context_finalize.execute({ summary: "Updated project context." }, {
+      sessionID: "parent-session",
+      messageID: "message",
+      agent: "coding-leader",
+      directory: root,
+      worktree: root,
+      abort: new AbortController().signal,
+      metadata() {}
+    });
+    assert.match(finalizeOutput, /Project Context finalized/);
+    assert.doesNotMatch(finalizeOutput, /\.crewbeectxt|STATE\.yaml|HANDOFF\.md|MEMORY_INDEX|observations/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -323,6 +347,8 @@ test("install doctor verifies plugin entry, order, hidden maintainer, and tools"
     assert.equal(result.noProjectContextReadTool, true);
     assert.equal(result.noCompactionHook, true);
     assert.equal(result.maintainerTaskDeniedForPrimaryAgent, true);
+    assert.equal(result.hasToolPrivatePathGuard, true);
+    assert.equal(result.hasToolOutputRedactor, true);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

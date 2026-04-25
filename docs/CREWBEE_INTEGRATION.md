@@ -54,9 +54,23 @@ config
 tool
 experimental.chat.system.transform
 tool.execute.before
+tool.execute.after
 ```
 
 It intentionally does not use `experimental.session.compacting`; compaction output already carries necessary session context and Project Context should remain passive until a tool is called.
+
+## Private workspace visibility
+
+The project context workspace is private to the plugin runtime and hidden maintainer. It is not exposed to the main CrewBee/OpenCode agent through prompt text, capsule metadata, tool schemas, direct tool arguments, or non-maintainer tool outputs.
+
+Rules enforced by the OpenCode adapter:
+
+- Main-agent system/capsule text does not include private workspace paths or file menus.
+- `project_context_prepare`, `project_context_search`, and `project_context_finalize` accept goals/summaries, not context file paths.
+- `tool.execute.before` blocks non-maintainer direct tool arguments that reference the private workspace.
+- `tool.execute.after` redacts private workspace paths from non-maintainer tool outputs.
+- Hidden `project-context-maintainer` remains allowed to read/write the private workspace.
+- Watcher ignores private cache/tmp/lock noise only; durable context files remain normal filesystem/Git files for maintainers and humans.
 
 ## Install / doctor flow
 
@@ -68,7 +82,7 @@ npm run install:local:user
 npm run doctor
 ```
 
-The installer writes the canonical package-name plugin entry `crewbee-project-context` into OpenCode config. If `crewbee` is already present, the project-context entry is placed after it. Doctor validates the installed package entrypoint, plugin order, hidden maintainer config, task deny, three-tool surface, absence of `project_context_read`, and absence of `experimental.session.compacting`.
+The installer writes the canonical package-name plugin entry `crewbee-project-context` into OpenCode config. If `crewbee` is already present, the project-context entry is placed after it. Doctor validates the installed package entrypoint, plugin order, hidden maintainer config, task deny, private workspace guard/redactor, three-tool surface, absence of `project_context_read`, and absence of `experimental.session.compacting`.
 
 ## Runtime rule
 

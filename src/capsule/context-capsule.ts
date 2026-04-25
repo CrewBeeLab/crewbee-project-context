@@ -14,7 +14,6 @@ export class ContextCapsuleBuilder {
     const budgetTokens = options.budgetTokens ?? 1000;
     const memoryLimit = options.memoryLimit ?? 5;
     const contextDir = this.store.paths.contextDir();
-    const sourceFiles: string[] = [];
     const warnings: string[] = [];
 
     const maybeRead = async (fileName: string): Promise<string> => {
@@ -23,7 +22,6 @@ export class ContextCapsuleBuilder {
         warnings.push(`Missing ${DEFAULT_CONTEXT_DIR}/${fileName}`);
         return "";
       }
-      sourceFiles.push(`${DEFAULT_CONTEXT_DIR}/${fileName}`);
       return this.store.readText(target);
     };
 
@@ -42,7 +40,7 @@ export class ContextCapsuleBuilder {
     const exactNextActions = this.parser.parseMarkdownSectionItems(handoffText, "Exact Next Actions");
     const nextActions = exactNextActions.length > 0 ? exactNextActions : state.nextActions;
     const lines = [
-      `Project Context detected: ${DEFAULT_CONTEXT_DIR}/`,
+      "Project Context: available",
       "",
       "Current:",
       `- Project: ${projectName}`,
@@ -53,18 +51,18 @@ export class ContextCapsuleBuilder {
       `- Blockers: ${state.blockers.length > 0 ? state.blockers.join("; ") : "none"}`,
       "",
       "Context access:",
-      "- Main agent should use project_context_prepare/search/finalize, not direct scaffold reads.",
+      "- Use project_context_prepare/search/finalize. Internal workspace details are not part of the main-agent context.",
       "",
       "Next actions:",
       ...(nextActions.length > 0 ? nextActions.map((item, index) => `${index + 1}. ${item}`) : ["1. No explicit next action recorded."]),
       "",
       "High-signal memory:",
-      ...(memories.length > 0 ? memories.map((entry) => `- ${entry.id ?? "memory"} ${entry.type ?? ""}: ${entry.summary ?? ""}`.trim()) : ["- none recorded"]),
+      ...(memories.length > 0 ? memories.map((entry) => `- ${entry.id ?? "memory"} ${entry.type ?? ""}: ${this.sanitizePrivateWorkspaceText(entry.summary ?? "")}`.trim()) : ["- none recorded"]),
       "",
       "Agent rule: Use project_context_prepare first and project_context_search only when prepared context is insufficient. Use project_context_finalize after material changes."
     ];
-    const text = this.enforceBudget(lines.join("\n"), budgetTokens);
-    return { text, estimatedTokens: this.estimateTokens(text), sourceFiles, warnings };
+    const text = this.enforceBudget(this.sanitizePrivateWorkspaceText(lines.join("\n")), budgetTokens);
+    return { text, estimatedTokens: this.estimateTokens(text), sourceFiles: [], warnings: warnings.map((warning) => this.sanitizePrivateWorkspaceText(warning)) };
   }
 
   public estimateTokens(text: string): number {
@@ -79,5 +77,9 @@ export class ContextCapsuleBuilder {
   private extractProjectName(projectText: string): string | null {
     const match = projectText.match(/## Project Name\s+([^#]+)/m);
     return match?.[1] ? match[1].trim().split(/\r?\n/)[0]?.trim() ?? null : null;
+  }
+
+  private sanitizePrivateWorkspaceText(text: string): string {
+    return text.replace(/`?\.crewbeectxt\/?`?/g, "private Project Context workspace");
   }
 }

@@ -65,3 +65,9 @@
   Summary: `crewbee-project-context` is a sibling OpenCode plugin with root `opencode-plugin.mjs`, hidden maintainer, three tools, and CrewBee-style user-level install/doctor flow.
   Affects: package, OpenCode plugin loading, install, doctor
   References: `.crewbeectxt/observations/CP-0013.md`
+
+- ID: M-0012
+  Type: rule
+  Summary: The private Project Context workspace must be invisible to the main Agent through prompt/capsule text, tool args, and non-maintainer tool outputs; access goes through prepare/search/finalize.
+  Affects: OpenCode hooks, capsule, tool guard, output redaction
+  References: `.crewbeectxt/observations/CP-0014.md`

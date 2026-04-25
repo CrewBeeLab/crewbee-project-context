@@ -20,6 +20,13 @@
 - CrewBee-style user-level install / pack-local / doctor flow is implemented via `bin/crewbee-project-context.js`, `scripts/pack-local.mjs`, and `src/install/`.
 - Install writes canonical OpenCode plugin entry `crewbee-project-context`, preserving recommended order after `crewbee` when present.
 - Install doctor validates installed plugin entry, OpenCode config order, hidden maintainer config, task deny, three-tool surface, absence of `project_context_read`, and absence of compaction hook.
+- Main-agent-facing prompt/capsule text does not expose the private Project Context workspace path.
+- Capsule source file metadata is empty for main-agent-facing integrations.
+- OpenCode `tool.execute.before` blocks non-maintainer direct tool args containing private workspace paths, while allowing the hidden maintainer.
+- OpenCode `tool.execute.after` redacts private workspace paths from non-maintainer tool outputs.
+- OpenCode finalize tool returns path-free status text instead of internal scaffold file names.
+- Config hook appends watcher ignores for private cache/tmp/lock files.
+- Install doctor validates private path guard and output redactor hooks.
 
 ## Important Paths
 
@@ -34,6 +41,8 @@
 - `src/integrations/opencode/subsession-runner.ts`: OpenCode client session.create / session.prompt based maintainer runner.
 - `src/integrations/opencode/system-transform-hook.ts`: compact system prompt injection.
 - `src/integrations/opencode/tool-guard.ts`: direct Task maintainer guard.
+- `src/integrations/opencode/tool-output-redactor.ts`: non-maintainer tool output redaction.
+- `src/integrations/opencode/visibility.ts`: shared private workspace path detection/redaction helpers.
 - `src/install/`: OpenCode user-level install, config writer, package entry detection, local tarball install, and doctor.
 - `bin/crewbee-project-context.js`: package CLI wrapper for install and doctor commands.
 - `scripts/build.mjs`: TypeScript build plus `dist/opencode-plugin.mjs` generation.
@@ -43,6 +52,7 @@
 
 - End-to-end OpenCode startup smoke test with both `crewbee` and `crewbee-project-context` configured is still pending.
 - Maintainer subsession runner is implemented against OpenCode client shape and covered by unit-style tests, but not yet validated against a live OpenCode runtime.
+- GitHub release v0.1.0 is not completed in this environment because the `gh` CLI is unavailable.
 
 ## Verification Commands
 
@@ -58,5 +68,7 @@ npm run build
 - Checkpoint: pending CP-0012 closeout
 - Status: in progress
 - Evidence so far:
-  - `npm run typecheck` passed after install/doctor implementation.
-  - `npm test` passed with 18 tests after install/doctor implementation.
+  - `npm run diagnostics` passed after private workspace visibility implementation.
+  - `npm run typecheck` passed after private workspace visibility implementation.
+  - `npm test` passed with 18 tests after private workspace visibility implementation.
+  - `npm run build` passed after private workspace visibility implementation.

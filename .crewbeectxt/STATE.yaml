@@ -2,13 +2,16 @@ project_id: crewbee-project-context
 run_status: running
 active_cycle: C2
 active_step_id: S11
-last_checkpoint: CP-0013
+last_checkpoint: CP-0014
 blockers: []
 next_actions:
   - action: Run an end-to-end OpenCode startup smoke test with plugin config [crewbee, crewbee-project-context].
     owner: active-agent
     source: updateContext
   - action: Validate maintainer subsession behavior against a live OpenCode runtime.
+    owner: active-agent
+    source: updateContext
+  - action: Resume v0.1.0 GitHub release after committing the private workspace visibility changes; gh CLI is unavailable in this environment.
     owner: active-agent
     source: updateContext
 sync:

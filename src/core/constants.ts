@@ -25,11 +25,3 @@ export const SEARCHABLE_CONTEXT_FILES = [
   "DECISIONS.md",
   "REFERENCES.md"
 ] as const;
-
-export const DEFAULT_READ_ORDER = [
-  ".crewbeectxt/HANDOFF.md",
-  ".crewbeectxt/STATE.yaml",
-  ".crewbeectxt/PLAN.yaml",
-  ".crewbeectxt/IMPLEMENTATION.md",
-  ".crewbeectxt/ARCHITECTURE.md"
-] as const;

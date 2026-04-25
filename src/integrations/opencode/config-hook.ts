@@ -35,6 +35,16 @@ function denyMaintainerTask(agent: OpenCodeAgentConfig): void {
   agent.permission = permission;
 }
 
+function patchWatcherIgnore(config: OpenCodeConfigLike): void {
+  const watcher = config.watcher && typeof config.watcher === "object" && !Array.isArray(config.watcher)
+    ? { ...(config.watcher as Record<string, unknown>) }
+    : {};
+  const existingIgnore = Array.isArray(watcher.ignore) ? watcher.ignore : [];
+  const additions = [".crewbeectxt/cache/**", ".crewbeectxt/tmp/**", ".crewbeectxt/*.lock"];
+  watcher.ignore = [...existingIgnore, ...additions.filter((entry) => !existingIgnore.includes(entry))];
+  config.watcher = watcher;
+}
+
 export function createProjectContextConfigHook() {
   return async (config: OpenCodeConfigLike): Promise<void> => {
     const agents = { ...(config.agent ?? {}) };
@@ -50,5 +60,6 @@ export function createProjectContextConfigHook() {
     }
 
     config.agent = agents;
+    patchWatcherIgnore(config);
   };
 }

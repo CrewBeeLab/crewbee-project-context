@@ -40,6 +40,8 @@ export interface DoctorResult {
   hasInstalledPackage: boolean;
   hasPluginFile: boolean;
   hasRecommendedPluginOrder: boolean;
+  hasToolOutputRedactor: boolean;
+  hasToolPrivatePathGuard: boolean;
   hasThreeToolSurface: boolean;
   hasWorkspaceManifest: boolean;
   healthy: boolean;

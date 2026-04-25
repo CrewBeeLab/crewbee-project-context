@@ -25,7 +25,7 @@ export async function runInstallDoctor(options: DoctorOptions = {}): Promise<Doc
   const configMatchesCanonical = currentPluginEntries.length === 1 && currentPluginEntries[0] === expectedPluginEntry;
   const pluginSurface = hasPluginFile ? await inspectPluginSurface(pluginPath, installRoot) : emptyPluginSurface();
   const orderOk = hasRecommendedPluginOrder(config);
-  const healthy = hasWorkspaceManifest && hasInstalledPackage && hasPluginFile && configMatchesCanonical && orderOk && pluginSurface.hasHiddenMaintainerAgent && pluginSurface.hasThreeToolSurface && pluginSurface.noProjectContextReadTool && pluginSurface.noCompactionHook && pluginSurface.maintainerTaskDeniedForPrimaryAgent;
+  const healthy = hasWorkspaceManifest && hasInstalledPackage && hasPluginFile && configMatchesCanonical && orderOk && pluginSurface.hasHiddenMaintainerAgent && pluginSurface.hasThreeToolSurface && pluginSurface.noProjectContextReadTool && pluginSurface.noCompactionHook && pluginSurface.maintainerTaskDeniedForPrimaryAgent && pluginSurface.hasToolPrivatePathGuard && pluginSurface.hasToolOutputRedactor;
 
   return {
     configPath,
@@ -36,6 +36,8 @@ export async function runInstallDoctor(options: DoctorOptions = {}): Promise<Doc
     hasInstalledPackage,
     hasPluginFile,
     hasRecommendedPluginOrder: orderOk,
+    hasToolOutputRedactor: pluginSurface.hasToolOutputRedactor,
+    hasToolPrivatePathGuard: pluginSurface.hasToolPrivatePathGuard,
     hasThreeToolSurface: pluginSurface.hasThreeToolSurface,
     hasWorkspaceManifest,
     healthy,
@@ -50,6 +52,8 @@ export async function runInstallDoctor(options: DoctorOptions = {}): Promise<Doc
 function emptyPluginSurface() {
   return {
     hasHiddenMaintainerAgent: false,
+    hasToolOutputRedactor: false,
+    hasToolPrivatePathGuard: false,
     hasThreeToolSurface: false,
     maintainerTaskDeniedForPrimaryAgent: false,
     noCompactionHook: false,
@@ -71,14 +75,37 @@ async function inspectPluginSurface(pluginPath: string, worktree: string): Promi
   const leaderPermission = readRecord(leader.permission);
   const taskPermission = readRecord(leaderPermission.task);
   const toolNames = hooks.tool && typeof hooks.tool === "object" && !Array.isArray(hooks.tool) ? Object.keys(hooks.tool as Record<string, unknown>).sort() : [];
+  const hasToolPrivatePathGuard = await inspectPrivatePathGuard(readRecord(hooks));
+  const hasToolOutputRedactor = await inspectToolOutputRedactor(readRecord(hooks));
 
   return {
     hasHiddenMaintainerAgent: maintainer.mode === "subagent" && maintainer.hidden === true,
+    hasToolOutputRedactor,
+    hasToolPrivatePathGuard,
     hasThreeToolSurface: toolNames.join("|") === "project_context_finalize|project_context_prepare|project_context_search",
     maintainerTaskDeniedForPrimaryAgent: taskPermission["project-context-maintainer"] === "deny",
     noCompactionHook: !("experimental.session.compacting" in readRecord(hooks)),
     noProjectContextReadTool: !toolNames.includes("project_context_read")
   };
+}
+
+async function inspectPrivatePathGuard(hooks: Record<string, unknown>): Promise<boolean> {
+  const guard = hooks["tool.execute.before"];
+  if (typeof guard !== "function") return false;
+  try {
+    await guard({ tool: "read", sessionID: "doctor", callID: "doctor", agent: "coding-leader" }, { args: { filePath: ".crewbeectxt/HANDOFF.md" } });
+    return false;
+  } catch (error) {
+    return error instanceof Error && error.message.includes("Project Context workspace is private");
+  }
+}
+
+async function inspectToolOutputRedactor(hooks: Record<string, unknown>): Promise<boolean> {
+  const redactor = hooks["tool.execute.after"];
+  if (typeof redactor !== "function") return false;
+  const output = { result: "visible .crewbeectxt/HANDOFF.md" };
+  await redactor({ tool: "bash", sessionID: "doctor", callID: "doctor", agent: "coding-leader" }, output);
+  return output.result === "visible [project-context-private]";
 }
 
 function createMockOpenCodeClient() {

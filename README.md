@@ -41,6 +41,7 @@ This repository owns the `.crewbeectxt/` convention and the tools that read, val
 - Expose only `project_context_prepare`, `project_context_search`, and `project_context_finalize` to the main agent.
 - Delegate scaffold reading and maintenance to a hidden OpenCode Context Maintainer subagent behind those tools.
 - Avoid exposing scaffold file structure through `project_context_read`.
+- Keep the private context workspace out of main-agent prompt/capsule metadata, direct tool args, and non-maintainer tool outputs.
 - Integrate as an OpenCode plugin and do not use `experimental.session.compacting`.
 
 ## Quick start
@@ -63,7 +64,7 @@ In product usage, install `crewbee` and `crewbee-project-context` as sibling Ope
 }
 ```
 
-Project Context detects `.crewbeectxt/`, injects a compact capsule, and registers the minimal tools automatically. The install CLI targets the OpenCode user-level plugin workspace; scaffold init/read/update is not exposed as the main user workflow.
+Project Context detects its private workspace, injects a compact capsule, and registers the minimal tools automatically. The install CLI targets the OpenCode user-level plugin workspace; scaffold init/read/update is not exposed as the main user workflow.
 
 Useful development-only commands:
 
