@@ -13,11 +13,11 @@ cycles:
           - human docs describe positioning, architecture, and CrewBee integration
           - diagnostics, tests, and build/typecheck commands are available
       - id: S2
-        title: Implement scaffold init, migrate, and doctor MVP
+        title: Implement scaffold init and doctor MVP
         status: completed
         acceptance:
           - init can create .crewbee in a target project
-          - migrate can convert .agent to .crewbee
+          - .crewbee is the only production context directory name
           - doctor catches missing files and state/plan inconsistencies
       - id: S3
         title: Implement primer MVP
@@ -45,7 +45,7 @@ cycles:
           - CrewBee can inject a context primer when .crewbee exists
           - CrewBee behavior is unchanged when .crewbee is absent or disabled
           - integration remains adapter/plugin level with no CrewBee Core coupling
-          - tool surface is limited to the smallest useful read/search/finalize bridge
+          - tool surface is limited to prepare/search/finalize_request and does not expose project_context_read
       - id: S7
         title: Hold minimal baseline and only add release hardening when requested
         status: active

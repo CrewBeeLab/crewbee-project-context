@@ -3,6 +3,7 @@
 ## Canonical Docs
 
 - `README.md`
+- `docs/zh-CN/PROJECT_GUIDE.md`
 - `docs/PROJECT_DESIGN.md`
 - `docs/CREWBEE_INTEGRATION.md`
 - `docs/INTERNAL_DEVELOPMENT.md`

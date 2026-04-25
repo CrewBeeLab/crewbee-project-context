@@ -12,7 +12,7 @@ export const REQUIRED_CONTEXT_FILES = [
   "DECISIONS.md",
   "REFERENCES.md",
   "config.yaml"
-];
+] as const;
 
 export const SEARCHABLE_CONTEXT_FILES = [
   "PROJECT.md",
@@ -24,7 +24,7 @@ export const SEARCHABLE_CONTEXT_FILES = [
   "MEMORY_INDEX.md",
   "DECISIONS.md",
   "REFERENCES.md"
-];
+] as const;
 
 export const DEFAULT_READ_ORDER = [
   ".crewbee/HANDOFF.md",
@@ -32,4 +32,4 @@ export const DEFAULT_READ_ORDER = [
   ".crewbee/PLAN.yaml",
   ".crewbee/IMPLEMENTATION.md",
   ".crewbee/ARCHITECTURE.md"
-];
+] as const;

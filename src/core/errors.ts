@@ -1,5 +1,7 @@
 export class ProjectContextError extends Error {
-  constructor(message, details = {}) {
+  public readonly details: Record<string, unknown>;
+
+  public constructor(message: string, details: Record<string, unknown> = {}) {
     super(message);
     this.name = "ProjectContextError";
     this.details = details;
@@ -7,7 +9,7 @@ export class ProjectContextError extends Error {
 }
 
 export class UnsafeContextPathError extends ProjectContextError {
-  constructor(filePath) {
+  public constructor(filePath: string) {
     super(`Refusing to access path outside project context: ${filePath}`, { filePath });
     this.name = "UnsafeContextPathError";
   }

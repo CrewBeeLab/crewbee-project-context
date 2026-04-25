@@ -2,7 +2,7 @@
 
 - ID: M-0001
   Type: decision
-  Summary: Use `.crewbee/` as the project context workspace instead of `.agent/`.
+  Summary: Use `.crewbee/` as the only production project context workspace directory.
   Affects: scaffold, templates, CrewBee integration
   References: `.crewbee/DECISIONS.md#d-0001`
 
@@ -26,9 +26,21 @@
 
 - ID: M-0005
   Type: discovery
-  Summary: The dependency-free MVP now covers init, migrate, doctor, primer, read/search, safe update, and finalize.
+  Summary: The runtime direction is OpenCode + CrewBee plug-and-play with prepare/search/finalize_request and maintainer-delegated scaffold work.
   Affects: CLI, API, tests, planning
   References: `.crewbee/observations/CP-0003.md`
+
+- ID: M-0008
+  Type: rule
+  Summary: Directory migration is not a product feature; projects should initialize and use `.crewbee/` directly.
+  Affects: scaffold, CLI, docs
+  References: `.crewbee/observations/CP-0007.md`
+
+- ID: M-0009
+  Type: discovery
+  Summary: Implementation is being converted to TypeScript with small object-oriented classes coordinated by `ProjectContextService`.
+  Affects: src, build, tests, package
+  References: `.crewbee/observations/CP-0008.md`
 
 - ID: M-0006
   Type: rule
@@ -38,6 +50,12 @@
 
 - ID: M-0007
   Type: discovery
-  Summary: Minimalism pass removed template double sources and unused schemas; CrewBee bridge is limited to primer plus read/search/finalize.
+  Summary: Minimalism pass removed template double sources and unused schemas; CrewBee bridge is limited to capsule plus prepare/search/finalize_request.
   Affects: scaffold, package, build, CrewBee integration
   References: `.crewbee/observations/CP-0005.md`
+
+- ID: M-0010
+  Type: decision
+  Summary: Do not expose `project_context_read`; main agents request prepare/search/finalize_request and Context Maintainer handles scaffold structure.
+  Affects: CrewBee integration, prompt, tool surface
+  References: `docs/zh-CN/PROJECT_GUIDE.md`

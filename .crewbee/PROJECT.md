@@ -17,7 +17,8 @@ Provide a lightweight project-context layer for Agent Coding. The package owns t
 - `.crewbee/` scaffold specification.
 - Context initialization and validation.
 - Low-token context primer generation.
-- Safe context read/search/update/finalize APIs.
+- Minimal prepare/search/finalize_request runtime tools for main agents.
+- Internal context read/update/finalize APIs for maintainer and diagnostics.
 - Optional CrewBee integration bridge.
 - Documentation for humans and agents.
 

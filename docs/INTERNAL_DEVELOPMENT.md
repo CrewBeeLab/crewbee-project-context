@@ -2,7 +2,7 @@
 
 ## Repository status
 
-This repository is initialized as a dependency-free Node.js ESM package. The first implementation favors verifiability and stable module boundaries over feature depth.
+This repository is implemented as a TypeScript package with a small object-oriented service structure. The implementation favors verifiability, minimal abstractions, and stable module boundaries over feature depth.
 
 ## Commands
 
@@ -40,13 +40,13 @@ Before declaring a change complete:
 ## Module boundaries
 
 - `core` contains shared primitives only.
-- `scaffold` owns template initialization and validation.
-- `store` owns path safety and file access.
-- `primer` owns context compression.
-- `search` owns local context retrieval.
-- `update` owns safe state/handoff/memory/decision updates.
-- `finalize` owns session-end updates.
-- `integrations/crewbee` owns optional CrewBee-facing adapters.
+- `workspace` owns `.crewbee` paths, bootstrap, doctor, and file access.
+- `indexer` owns lightweight scaffold parsing.
+- `capsule` owns Context Capsule and Task Context Brief compression.
+- `maintainer` owns internal prepare/search/finalize_request execution and safe patching.
+- `service` owns the object-oriented facade that coordinates modules.
+- `integrations/crewbee` owns optional CrewBee/OpenCode extension, prompt fragment, tool definitions, handlers, and internal-agent metadata.
+- `cli` is internal/debug/CI oriented, not the product user flow.
 
 ## Release notes discipline
 

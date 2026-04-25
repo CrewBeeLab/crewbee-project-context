@@ -2,13 +2,10 @@ project_id: crewbee-project-context
 run_status: running
 active_cycle: C1
 active_step_id: S7
-last_checkpoint: CP-0005
+last_checkpoint: CP-0009
 blockers: []
 next_actions:
-  - action: Keep the baseline stable; only add release hardening or new features with explicit acceptance criteria
-    owner: active-agent
-    source: PLAN.yaml
-  - action: If continuing development, prefer deleting or simplifying before adding abstractions
+  - action: Implement full Context Maintainer sub-session execution for prepare/search/finalize_request when integrating with CrewBee/OpenCode
     owner: active-agent
     source: PLAN.yaml
 sync:

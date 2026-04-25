@@ -9,20 +9,19 @@
   -> ContextPrimerBuilder
   -> ContextSearch
   -> ContextUpdater / SessionFinalizer
-  -> CLI / JavaScript API
+  -> CLI / TypeScript API
   -> CrewBee Integration Bridge
 ```
 
 ## Module responsibilities
 
-- `src/core/`: constants, errors, path safety helpers.
-- `src/scaffold/`: initialization, templates, validation.
-- `src/store/`: file-system reads and controlled writes.
+- `src/core/`: constants, budgets, errors, shared types.
+- `src/workspace/`: `.crewbee` paths, bootstrap, doctor, file-system reads and controlled writes.
 - `src/indexer/`: lightweight extraction from state/plan/memory/handoff files.
-- `src/primer/`: low-token context primer rendering.
-- `src/search/`: local text search over `.crewbee/` files.
-- `src/finalize/`: session summaries and observation writing.
-- `src/integrations/crewbee/`: optional CrewBee-facing prompt/tool bridge.
+- `src/capsule/`: low-token Context Capsule / Task Context Brief rendering.
+- `src/maintainer/`: internal Context Maintainer, search, safe patching, finalize request handling.
+- `src/integrations/crewbee/`: optional CrewBee/OpenCode extension, prompt fragment, tool definitions, handlers, internal-agent metadata.
+- `src/service/`: object-oriented ProjectContextService facade.
 - `src/cli/`: `crewbee-context` command-line interface.
 
 ## Key invariants

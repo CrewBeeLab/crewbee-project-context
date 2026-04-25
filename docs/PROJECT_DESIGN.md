@@ -36,21 +36,19 @@ Letting every new session rediscover those facts by reading the whole repository
 
 ## 3. Product answer
 
-The repository owns a `.crewbee/` workspace with high-signal project context and provides tools to:
+The repository owns a `.crewbee/` workspace with high-signal project context and provides a minimal runtime extension to:
 
-1. initialize the workspace;
-2. validate consistency;
-3. generate a low-token context primer;
-4. read and search prior decisions and implementation state;
-5. update handoff/state/memory safely at session boundaries;
-6. integrate with CrewBee without coupling to CrewBee Core.
+1. prepare task-relevant project context;
+2. search project context through a maintainer-controlled path;
+3. request finalize/maintenance after material changes;
+4. integrate with CrewBee/OpenCode without coupling to CrewBee Core.
 
 ## 4. Two-layer architecture
 
 ```text
 crewbee-project-context
   -> .crewbee workspace convention
-  -> CLI / library / templates / validation / primer / search / finalize
+  -> runtime extension / capsule / prepare / search / finalize_request / maintainer
 
 CrewBee
   -> Team-first agent framework
@@ -92,15 +90,13 @@ During development, template documents must live in a directory explicitly marke
 ## 7. Functional modules
 
 ```text
-src/core/          shared constants, errors, path safety
-src/scaffold/      init, migrate, validate, templates
-src/store/         filesystem access and safe writes
+src/core/          shared constants, budgets, errors, types
+src/workspace/     .crewbee paths, bootstrap, doctor, filesystem access
 src/indexer/       extraction from project context files
-src/primer/        low-token primer generation
-src/search/        local context search
-src/finalize/      session handoff and observation writing
-src/integrations/  CrewBee bridge and prompt fragment helpers
-src/cli/           crewbee-context CLI
+src/capsule/       low-token Context Capsule and Task Context Brief generation
+src/maintainer/    prepare/search/finalize_request execution and safe patching
+src/integrations/  CrewBee/OpenCode extension, prompt fragment, tool definitions, handlers, internal agent metadata
+src/cli/           internal debug/doctor CLI
 templates/crewbee-template/ scaffold source documents copied into target .crewbee/ workspaces
 ```
 
@@ -115,7 +111,7 @@ The MVP intentionally uses plain files and zero runtime dependencies:
 - no UI;
 - no automatic full chat capture.
 
-This keeps the tool easy to embed, review, and trust. The current implementation covers init, migration, doctor, primer, read/search, safe update, and finalize as a dependency-free Node ESM package.
+This keeps the tool easy to embed, review, and trust. The intended runtime surface is prepare/search/finalize_request, with scaffold reads and writes delegated to an internal Context Maintainer.
 
 ## 9. Development roadmap
 
@@ -129,9 +125,9 @@ Development is step-based, not calendar-based.
 
 ### S2: Scaffold MVP
 
-- `crewbee-context init`
-- `crewbee-context doctor`
-- `.agent -> .crewbee` migration path.
+- lazy bootstrap of `.crewbee/`
+- internal doctor
+- `.crewbee/` as the only production context directory name.
 
 ### S3: Primer MVP
 
@@ -147,10 +143,10 @@ Development is step-based, not calendar-based.
 - Safe state/handoff/memory updates.
 - Session observation writer.
 
-### S6: Minimal CrewBee integration
+### S6: Minimal CrewBee/OpenCode integration
 
 - Optional prompt primer injection.
-- Minimal `project_context_read/search/finalize` tool bridge.
+- Minimal `project_context_prepare/search/finalize_request` tool bridge.
 - No behavior change when `.crewbee/` is absent.
 - No CrewBee Core contract changes.
 

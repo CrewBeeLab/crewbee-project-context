@@ -1,15 +1,17 @@
-import * as api from "../src/index.js";
+import * as api from "../dist/src/index.js";
 
 const required = [
   "detect",
   "initProjectContext",
-  "migrateProjectContext",
   "validateContext",
   "buildPrimer",
+  "prepareProjectContext",
+  "searchProjectContext",
   "searchContext",
   "readContextFile",
   "updateContext",
   "finalizeSession",
+  "requestProjectContextFinalize",
   "buildCrewBeePromptFragment",
   "executeCrewBeeProjectContextTool"
 ];

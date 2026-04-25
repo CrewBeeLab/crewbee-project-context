@@ -14,7 +14,7 @@ CrewBee Adapter / Plugin:
   optionally loads @crewbee/project-context
 
 Project Context:
-  exposes detect, validate, primer, read, search, update, finalize APIs
+  exposes prepare, search, and finalize_request tools through the CrewBee/OpenCode runtime extension
 ```
 
 ## Runtime flow
@@ -28,26 +28,24 @@ OpenCode session starts
   -> if .crewbee exists:
        build Context Primer
        inject primer into system prompt
-       register project_context_* tools
-  -> Agent uses read/search before broad code exploration
+       register project_context_prepare/search/finalize_request tools
+  -> Agent uses prepare before broad project-context exploration
   -> Agent performs task
-  -> Agent/user triggers finalize when state materially changes
+  -> Agent triggers finalize_request when state materially changes
 ```
 
 ## Prompt injection
 
-CrewBee should inject only a compact primer, not full documents.
+CrewBee should inject only a compact Runtime Rule + Context Capsule, not full documents.
 
-The primer contains:
+The capsule contains:
 
 - project identity;
 - active step/status;
 - blockers;
 - exact next actions;
 - high-signal memory;
-- read order;
-- available tools;
-- update discipline.
+- available tools.
 
 ## Suggested CrewBee config
 
@@ -55,7 +53,6 @@ The primer contains:
 {
   "projectContext": {
     "enabled": true,
-    "contextDir": ".crewbee",
     "primerBudgetTokens": 1000,
     "autoInjectPrimer": true,
     "autoFinalize": "manual",
@@ -68,19 +65,19 @@ The primer contains:
 ## Suggested tools
 
 ```text
-project_context_read
+project_context_prepare
 project_context_search
-project_context_finalize
+project_context_finalize_request
 ```
 
-`project_context_update` may be added later only if a real integration workflow needs structured writes beyond finalize.
+Do not expose `project_context_read`; scaffold file selection is handled by the internal Context Maintainer.
 
 ## Minimal shared agent rule
 
 Avoid repeating a long Project Context policy in every agent. CrewBee can add one compact shared rule:
 
 ```text
-When Project Context is available, inspect the injected Context Primer before broad code exploration. Prefer project_context_search/read for prior architecture, implementation state, plan, decisions, risks, and handoff records. Update .crewbee state only when project state materially changes.
+When Project Context is available, use project_context_prepare before broad project-context exploration. Use project_context_search only when prepared context is insufficient. Do not read or edit .crewbee files directly. After material changes, call project_context_finalize_request with completed work, changed files, verification, blockers, and next actions.
 ```
 
 ## Non-goals

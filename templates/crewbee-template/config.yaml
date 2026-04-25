@@ -1,5 +1,4 @@
 version: 1
-context_dir: .crewbee
 primer:
   budget_tokens: 1000
   memory_limit: 5

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { buildCrewBeePromptFragment, buildPrimer, executeCrewBeeProjectContextTool, finalizeSession, getCrewBeeToolNames, initProjectContext, migrateProjectContext, readContextFile, searchContext, updateContext, validateContext } from "../src/index.js";
+import { buildCrewBeePromptFragment, buildPrimer, executeCrewBeeProjectContextTool, finalizeSession, getCrewBeeToolNames, initProjectContext, prepareProjectContext, readContextFile, searchContext, updateContext, validateContext } from "../dist/src/index.js";
 
 test("init creates a valid .crewbee workspace", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-"));
@@ -45,23 +45,13 @@ test("search returns matching context files", async () => {
   }
 });
 
-test("migrate converts .agent to .crewbee and rewrites text references", async () => {
+test("prepare returns a task context brief", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-"));
   try {
-    await initProjectContext(root, { contextDir: ".agent", projectId: "demo", projectName: "Demo" });
-    await writeFile(path.join(root, ".agent", "HANDOFF.md"), "# Session Handoff\n\n## Current Snapshot\n\n- Read .agent/STATE.yaml.\n\n## Exact Next Actions\n\n1. Migrate .agent to .crewbee.\n", "utf8");
-
-    const result = await migrateProjectContext(root);
-    assert.equal(result.sourceDir, ".agent");
-    assert.equal(result.targetDir, ".crewbee");
-    assert.ok(result.rewrittenFiles.some((file) => file.endsWith("HANDOFF.md")));
-
-    const handoff = await readFile(path.join(root, ".crewbee", "HANDOFF.md"), "utf8");
-    assert.match(handoff, /\.crewbee\/STATE\.yaml/);
-    assert.doesNotMatch(handoff, /\.agent/);
-
-    const validation = await validateContext(root);
-    assert.equal(validation.ok, true, validation.errors.join("; "));
+    await initProjectContext(root, { projectId: "demo", projectName: "Demo" });
+    const brief = await prepareProjectContext(root, "Implement minimal CrewBee Project Context integration.");
+    assert.match(brief.text, /Task Context Brief/);
+    assert.match(brief.text, /Project Context detected/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -135,7 +125,7 @@ test("finalizeSession writes observation and updates handoff/state", async () =>
     const result = await finalizeSession(root, {
       title: "Finalize Test",
       summary: "Implemented finalize test flow.",
-      changedFiles: ["src/finalize/finalize-session.js"],
+      changedFiles: ["src/maintainer/finalize-context.ts"],
       verification: ["npm test passed"],
       nextActions: ["Continue S5 hardening"]
     });
@@ -164,16 +154,33 @@ test("CrewBee bridge stays minimal and disabled when context is absent", async (
     const fragment = await buildCrewBeePromptFragment(root);
     assert.equal(fragment.enabled, false);
     assert.deepEqual(getCrewBeeToolNames(), [
-      "project_context_read",
+      "project_context_prepare",
       "project_context_search",
-      "project_context_finalize"
+      "project_context_finalize_request"
     ]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("CrewBee bridge executes read and search tools", async () => {
+test("finalize_request bootstraps .crewbee when context is absent", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-"));
+  try {
+    const finalized = await executeCrewBeeProjectContextTool(root, "project_context_finalize_request", {
+      summary: "Create project context after material progress.",
+      nextActions: ["Continue with prepared context"]
+    });
+    assert.equal(finalized.ok, true);
+    const validation = await validateContext(root);
+    assert.equal(validation.ok, true, validation.errors.join("; "));
+    const handoff = await readFile(path.join(root, ".crewbee", "HANDOFF.md"), "utf8");
+    assert.match(handoff, /Create project context after material progress/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("CrewBee bridge executes prepare, search, and finalize_request tools", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-"));
   try {
     await initProjectContext(root, { projectId: "demo", projectName: "Demo" });
@@ -181,13 +188,13 @@ test("CrewBee bridge executes read and search tools", async () => {
     assert.equal(fragment.enabled, true);
     assert.match(fragment.text, /Project Context detected/);
 
-    const read = await executeCrewBeeProjectContextTool(root, "project_context_read", { path: ".crewbee/HANDOFF.md" });
-    assert.match(read.text, /Session Handoff/);
+    const prepared = await executeCrewBeeProjectContextTool(root, "project_context_prepare", { goal: "Use project context with minimal attention." });
+    assert.match(prepared.text, /Task Context Brief/);
 
-    const search = await executeCrewBeeProjectContextTool(root, "project_context_search", { query: "project objective" });
-    assert.ok(search.items.length > 0);
+    const search = await executeCrewBeeProjectContextTool(root, "project_context_search", { goal: "project objective" });
+    assert.match(search.text, /Project Context Search Result/);
 
-    const finalized = await executeCrewBeeProjectContextTool(root, "project_context_finalize", {
+    const finalized = await executeCrewBeeProjectContextTool(root, "project_context_finalize_request", {
       summary: "Bridge finalize executed.",
       nextActions: ["Continue minimal integration"]
     });

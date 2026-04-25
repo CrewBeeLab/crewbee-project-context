@@ -1,4 +1,4 @@
-import { validateContext } from "../src/index.js";
+import { validateContext } from "../dist/src/index.js";
 
 const result = await validateContext(process.cwd());
 console.log(JSON.stringify(result, null, 2));

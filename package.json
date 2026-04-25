@@ -6,29 +6,32 @@
   "license": "MIT",
   "private": false,
   "bin": {
-    "crewbee-context": "src/cli/main.js"
+    "crewbee-context": "dist/src/cli/main.js"
   },
   "exports": {
     ".": {
-      "types": "./src/index.d.ts",
-      "import": "./src/index.js"
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
     }
   },
   "files": [
-    "src/",
-    "templates/",
+    "dist/",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "diagnostics": "node scripts/check-syntax.mjs && node scripts/doctor-repo.mjs",
-    "typecheck": "node scripts/check-types.mjs",
+    "diagnostics": "node scripts/check-syntax.mjs && npm run build && node scripts/doctor-repo.mjs",
+    "typecheck": "tsc --noEmit && npm run build && node scripts/check-types.mjs",
     "build": "node scripts/build.mjs",
-    "test": "node --test tests/*.test.js",
-    "doctor": "node src/cli/main.js doctor",
-    "primer": "node src/cli/main.js primer"
+    "test": "npm run build && node --test tests/*.test.js",
+    "doctor": "npm run build && node dist/src/cli/main.js doctor",
+    "primer": "npm run build && node dist/src/cli/main.js primer"
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "typescript": "^5.8.0"
   }
 }

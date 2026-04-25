@@ -3,8 +3,8 @@
 ## D-0001
 
 - Status: accepted
-- Context: The original scaffold used a generic `.agent/` directory, but the product is now positioned as a CrewBee-native project context layer.
-- Decision: Use `.crewbee/` as the default project context workspace.
+- Context: The product is positioned as a CrewBee-native project context layer and needs one clear production context directory name.
+- Decision: Use `.crewbee/` as the only production project context workspace directory. Do not implement directory migration as a product feature.
 - Consequences:
   - Pros: Clear product identity, stable CrewBee detection target, less ambiguity with other agent tools.
   - Cons: Less generic naming for non-CrewBee users.
