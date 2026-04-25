@@ -1,0 +1,7 @@
+node_modules/
+dist/
+coverage/
+.crewbee/cache/
+.crewbee/tmp/
+.crewbee/*.lock
+*.log

@@ -1,0 +1,10 @@
+project_id: new-project
+run_status: running
+active_cycle: C1
+active_step_id: S1
+last_checkpoint: CP-0001
+blockers: []
+next_actions:
+  - action: Fill in project context files
+    owner: active-agent
+    source: PLAN.yaml

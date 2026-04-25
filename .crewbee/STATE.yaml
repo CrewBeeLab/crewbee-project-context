@@ -1,0 +1,17 @@
+project_id: crewbee-project-context
+run_status: running
+active_cycle: C1
+active_step_id: S7
+last_checkpoint: CP-0005
+blockers: []
+next_actions:
+  - action: Keep the baseline stable; only add release hardening or new features with explicit acceptance criteria
+    owner: active-agent
+    source: PLAN.yaml
+  - action: If continuing development, prefer deleting or simplifying before adding abstractions
+    owner: active-agent
+    source: PLAN.yaml
+sync:
+  plan_state_consistent: true
+  handoff_updated: true
+  memory_index_updated: true

@@ -1,0 +1,55 @@
+project_id: crewbee-project-context
+cycles:
+  - id: C1
+    title: Repository initialization and context-layer MVP
+    status: active
+    steps:
+      - id: S1
+        title: Initialize repository, docs, .crewbee workspace, and minimal CLI/API skeleton
+        status: completed
+        acceptance:
+          - package metadata exists for @crewbee/project-context
+          - .crewbee workspace exists and documents current project context
+          - human docs describe positioning, architecture, and CrewBee integration
+          - diagnostics, tests, and build/typecheck commands are available
+      - id: S2
+        title: Implement scaffold init, migrate, and doctor MVP
+        status: completed
+        acceptance:
+          - init can create .crewbee in a target project
+          - migrate can convert .agent to .crewbee
+          - doctor catches missing files and state/plan inconsistencies
+      - id: S3
+        title: Implement primer MVP
+        status: completed
+        acceptance:
+          - primer summarizes active step, blockers, next actions, and high-signal memory
+          - primer respects a configurable token budget
+      - id: S4
+        title: Implement read/search MVP
+        status: completed
+        acceptance:
+          - read only accesses project context files
+          - search returns source, excerpt, and score
+      - id: S5
+        title: Implement update/finalize MVP
+        status: completed
+        acceptance:
+          - state and handoff updates are safe
+          - observations can be written per checkpoint
+          - memory and decisions are appended only for durable information
+      - id: S6
+        title: Implement minimal optional CrewBee integration bridge
+        status: completed
+        acceptance:
+          - CrewBee can inject a context primer when .crewbee exists
+          - CrewBee behavior is unchanged when .crewbee is absent or disabled
+          - integration remains adapter/plugin level with no CrewBee Core coupling
+          - tool surface is limited to the smallest useful read/search/finalize bridge
+      - id: S7
+        title: Hold minimal baseline and only add release hardening when requested
+        status: active
+        acceptance:
+          - no new abstraction is added without a real caller
+          - no new dependency is added without removing more complexity than it adds
+          - next implementation step has explicit user or release acceptance criteria

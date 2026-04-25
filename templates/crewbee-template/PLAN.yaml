@@ -1,0 +1,9 @@
+project_id: new-project
+cycles:
+  - id: C1
+    title: Initial cycle
+    status: active
+    steps:
+      - id: S1
+        title: Define project context
+        status: active
