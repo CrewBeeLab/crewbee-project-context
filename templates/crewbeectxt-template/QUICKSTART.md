@@ -1,3 +1,3 @@
 # New Project Context Quickstart
 
-Use `project_context_prepare` before broad project-context exploration. The internal maintainer owns `.crewbeectxt/` reads and writes.
+Project Context prepare and update are automatic. Use `project_context_search` only when the automatic brief is insufficient for prior decisions, plan, risks, or implementation history.

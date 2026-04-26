@@ -48,7 +48,7 @@ export class ProjectContextService {
         "Project Context Brief",
         "- No persisted project context is available yet.",
         "- Continue with normal code exploration.",
-        "- Call project_context_finalize or project_context_update when there is project context worth preserving."
+        "- Project Context will update automatically when there is project context worth preserving."
       ].join("\n");
       return { text, estimatedTokens: this.estimateTokens(text), warnings: [] };
     }

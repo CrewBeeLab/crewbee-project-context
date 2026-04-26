@@ -48,7 +48,7 @@ The repository owns a `.crewbeectxt/` workspace with high-signal project context
 ```text
 crewbee-project-context
   -> .crewbeectxt workspace convention
-  -> OpenCode plugin / hidden maintainer subagent / prepare / search / finalize
+  -> OpenCode plugin / hidden maintainer subagent / auto prepare / optional search / auto update
 
 CrewBee
   -> Team-first agent framework
@@ -94,7 +94,7 @@ src/core/          shared constants, budgets, errors, types
 src/workspace/     .crewbeectxt paths, bootstrap, doctor, filesystem access
 src/indexer/       extraction from project context files
 src/capsule/       low-token Context Capsule and Task Context Brief generation
-src/maintainer/    prepare/search/finalize execution and safe patching
+src/maintainer/    search/update execution and safe patching
 src/integrations/  CrewBee bridge and OpenCode plugin adapter, prompt fragments, tools, hidden maintainer metadata
 src/cli/           internal debug/doctor CLI
 templates/crewbeectxt-template/ scaffold source documents copied into target .crewbeectxt/ workspaces
@@ -111,7 +111,7 @@ The MVP intentionally uses plain files and zero runtime dependencies:
 - no UI;
 - no automatic full chat capture.
 
-This keeps the tool easy to embed, review, and trust. The intended runtime surface is prepare/search/finalize, with scaffold reads and writes delegated to a hidden OpenCode Context Maintainer subagent behind tools.
+This keeps the tool easy to embed, review, and trust. The intended visible runtime surface is only project_context_search. Prepare is automatic local I/O; update is automatic hidden-maintainer maintenance after material turns.
 
 ## 9. Development roadmap
 
@@ -145,8 +145,9 @@ Development is step-based, not calendar-based.
 
 ### S6: Minimal CrewBee/OpenCode integration
 
-- Optional prompt primer injection.
-- Minimal `project_context_prepare/search/finalize` tool bridge.
+- Automatic prompt-time context prepare.
+- Single visible `project_context_search` tool bridge.
+- Automatic post-turn context update.
 - No behavior change when `.crewbeectxt/` is absent.
 - No CrewBee Core contract changes.
 

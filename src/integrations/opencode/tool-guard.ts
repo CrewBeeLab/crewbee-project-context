@@ -3,7 +3,7 @@ import { containsPrivateContextPath, isProjectContextMaintainer } from "./visibi
 import type { OpenCodeClientLike } from "./types.js";
 import { writeRuntimeLog } from "./runtime-log.js";
 
-const PROJECT_CONTEXT_TOOL_NAMES = new Set(["project_context_prepare", "project_context_search", "project_context_update", "project_context_finalize"]);
+const PROJECT_CONTEXT_TOOL_NAMES = new Set(["project_context_search"]);
 
 function readTarget(args: unknown): string | undefined {
   if (typeof args !== "object" || args === null || Array.isArray(args)) return undefined;
@@ -38,7 +38,7 @@ export function createProjectContextToolGuard(options: { client?: OpenCodeClient
     if (isProjectContextTool(event.tool)) {
       if (isProjectContextMaintainer(event.agent)) {
         if (options.projectRoot) await writeRuntimeLog(options.projectRoot, { component: "tool-guard", event: "block-maintainer-recursion", sessionID: event.sessionID, agent: event.agent, tool: event.tool });
-        throw new Error("Project Context Maintainer must not call project_context_* tools recursively.");
+        throw new Error("Project Context Maintainer must not call project_context_search recursively.");
       }
       if (await isSubsession(options.client, event.sessionID, options.projectRoot)) {
         if (options.projectRoot) await writeRuntimeLog(options.projectRoot, { component: "tool-guard", event: "block-subsession-project-context-tool", sessionID: event.sessionID, agent: event.agent, tool: event.tool });
@@ -48,11 +48,11 @@ export function createProjectContextToolGuard(options: { client?: OpenCodeClient
     }
     if (isProjectContextMaintainer(event.agent)) return;
     if (containsPrivateContextPath(event.args) || containsPrivateContextPath(output.args)) {
-      throw new Error("Project Context workspace is private. Use project_context_prepare, project_context_search, project_context_update, or project_context_finalize.");
+      throw new Error("Project Context workspace is private. Use project_context_search only when automatic context is insufficient.");
     }
     if (event.tool !== "task") return;
     const target = readTarget(output.args) ?? readTarget(event.args);
     if (target !== PROJECT_CONTEXT_MAINTAINER_AGENT_ID) return;
-    throw new Error("Do not invoke project-context-maintainer directly. Use project_context_prepare, project_context_search, project_context_update, or project_context_finalize.");
+    throw new Error("Do not invoke project-context-maintainer directly. Project Context prepare and update are automatic; use project_context_search only when automatic context is insufficient.");
   };
 }

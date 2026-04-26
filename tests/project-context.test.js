@@ -19,7 +19,7 @@ test("public package surface stays focused on CrewBee sidecar usage", () => {
   assert.equal("initProjectContext" in publicApi, false);
   assert.equal("finalizeSession" in publicApi, false);
   assert.equal(typeof publicApi.executeCrewBeeProjectContextTool, "function");
-  assert.equal(typeof publicApi.requestProjectContextFinalize, "function");
+  assert.equal("requestProjectContextFinalize" in publicApi, false);
 });
 
 test("init creates a valid .crewbeectxt workspace", async () => {
@@ -185,50 +185,14 @@ test("CrewBee bridge stays minimal and disabled when context is absent", async (
   try {
     const fragment = await buildCrewBeePromptFragment(root);
     assert.equal(fragment.enabled, false);
-    assert.deepEqual(getCrewBeeToolNames(), [
-      "project_context_prepare",
-      "project_context_search",
-      "project_context_update",
-      "project_context_finalize"
-    ]);
+    assert.deepEqual(getCrewBeeToolNames(), ["project_context_search"]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("finalize does not bootstrap .crewbeectxt without material progress", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-"));
-  try {
-    const finalized = await executeCrewBeeProjectContextTool(root, "project_context_finalize", {});
-    assert.equal(finalized.ok, false);
-    assert.equal(finalized.checkpointId, null);
-    assert.match(finalized.warnings.join("\n"), /did not include material project progress/);
-    await assert.rejects(() => readFile(path.join(root, ".crewbeectxt", "STATE.yaml"), "utf8"), /ENOENT/);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
 
-test("finalize bootstraps .crewbeectxt when context is absent", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-"));
-  try {
-    const finalized = await executeCrewBeeProjectContextTool(root, "project_context_finalize", {
-      summary: "Create project context after material progress.",
-      changed_files: ["src/integrations/crewbee/tool-handlers.ts"],
-      next_actions: ["Continue with prepared context"]
-    });
-    assert.equal(finalized.ok, true);
-    assert.equal(finalized.doctor.ok, true, finalized.doctor.errors.join("; "));
-    const validation = await service(root).validateContext();
-    assert.equal(validation.ok, true, validation.errors.join("; "));
-    const handoff = await readFile(path.join(root, ".crewbeectxt", "HANDOFF.md"), "utf8");
-    assert.match(handoff, /Create project context after material progress/);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("CrewBee bridge executes prepare, search, update, and finalize tools", async () => {
+test("CrewBee bridge exposes only search as a manual Project Context tool", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-"));
   try {
     await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
@@ -237,27 +201,17 @@ test("CrewBee bridge executes prepare, search, update, and finalize tools", asyn
     assert.match(fragment.text, /Project Context: available/);
     assert.doesNotMatch(fragment.text, /\.crewbeectxt/);
 
-    const prepared = await executeCrewBeeProjectContextTool(root, "project_context_prepare", { goal: "Use project context with minimal attention." });
-    assert.match(prepared.text, /Project Context Brief/);
-
     const search = await executeCrewBeeProjectContextTool(root, "project_context_search", { goal: "project objective" });
     assert.match(search.text, /Project Context Search Result/);
-
-    const updated = await executeCrewBeeProjectContextTool(root, "project_context_update", { goal: "Record useful context.", facts: ["Bridge update executed."] });
-    assert.equal(updated.ok, true);
-
-    const finalized = await executeCrewBeeProjectContextTool(root, "project_context_finalize", {
-      summary: "Bridge finalize executed.",
-      nextActions: ["Continue minimal integration"]
-    });
-    assert.equal(finalized.ok, true);
-    assert.equal(finalized.doctor.ok, true, finalized.doctor.errors.join("; "));
+    await assert.rejects(() => executeCrewBeeProjectContextTool(root, "project_context_prepare", { goal: "x" }), /Unknown CrewBee Project Context tool/);
+    await assert.rejects(() => executeCrewBeeProjectContextTool(root, "project_context_update", { goal: "x" }), /Unknown CrewBee Project Context tool/);
+    await assert.rejects(() => executeCrewBeeProjectContextTool(root, "project_context_finalize", { summary: "x" }), /Unknown CrewBee Project Context tool/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
 
-test("OpenCode plugin exposes hidden maintainer and four tools without compaction hook", async () => {
+test("OpenCode plugin auto-prepares context, exposes only search, and auto-updates on idle", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-"));
   try {
     let promptAsyncCalls = 0;
@@ -285,60 +239,45 @@ test("OpenCode plugin exposes hidden maintainer and four tools without compactio
     };
     const hooks = await publicApi.ProjectContextOpenCodePlugin.server({ client, worktree: root, directory: root });
     assert.equal("experimental.session.compacting" in hooks, false);
-    assert.deepEqual(Object.keys(hooks.tool).sort(), [
-      "project_context_finalize",
-      "project_context_prepare",
-      "project_context_search",
-      "project_context_update"
-    ]);
+    assert.deepEqual(Object.keys(hooks.tool).sort(), ["project_context_search"]);
 
     const config = { agent: { "coding-leader": { mode: "primary", permission: {} }, "worker": { mode: "subagent", permission: {} } } };
     await hooks.config(config);
     assert.equal(config.agent["project-context-maintainer"].hidden, true);
     assert.equal(config.agent["project-context-maintainer"].mode, "subagent");
-    assert.equal(config.agent["project-context-maintainer"].permission.project_context_prepare, "deny");
-    assert.equal(config.agent["project-context-maintainer"].permission.project_context_update, "deny");
+    assert.equal(config.agent["project-context-maintainer"].permission.project_context_search, "deny");
     assert.equal(config.agent["project-context-maintainer"].permission["session.prompt"], "deny");
-    assert.equal(config.agent["project-context-maintainer"].tools.project_context_prepare, false);
-    assert.equal(config.agent["project-context-maintainer"].tools.project_context_update, false);
+    assert.equal(config.agent["project-context-maintainer"].tools.project_context_search, false);
     assert.equal(config.agent["coding-leader"].permission.task["project-context-maintainer"], "deny");
-    assert.equal(config.agent.worker.permission.project_context_prepare, "deny");
-    assert.equal(config.agent.worker.tools.project_context_prepare, false);
+    assert.equal(config.agent.worker.permission.project_context_search, "deny");
+    assert.equal(config.agent.worker.tools.project_context_search, false);
     assert.ok(config.watcher.ignore.includes(".crewbeectxt/cache/**"));
 
     await assert.rejects(() => hooks["tool.execute.before"]({ tool: "task", sessionID: "s", callID: "c" }, { args: { subagent_type: "project-context-maintainer" } }), /Do not invoke/);
-    await assert.rejects(() => hooks["tool.execute.before"]({ tool: "project_context_prepare", sessionID: "child-session", callID: "c", agent: "worker" }, { args: { goal: "x" } }), /root primary-agent sessions/);
-    await assert.rejects(() => hooks["tool.execute.before"]({ tool: "project_context_prepare", sessionID: "maintainer-session", callID: "c", agent: "project-context-maintainer" }, { args: { goal: "x" } }), /must not call project_context/);
+    await assert.rejects(() => hooks["tool.execute.before"]({ tool: "project_context_search", sessionID: "child-session", callID: "c", agent: "worker" }, { args: { goal: "x" } }), /root primary-agent sessions/);
+    await assert.rejects(() => hooks["tool.execute.before"]({ tool: "project_context_search", sessionID: "maintainer-session", callID: "c", agent: "project-context-maintainer" }, { args: { goal: "x" } }), /must not call project_context/);
     await assert.rejects(() => hooks["tool.execute.before"]({ tool: "read", sessionID: "s", callID: "c", agent: "coding-leader" }, { args: { filePath: ".crewbeectxt/HANDOFF.md" } }), /Project Context workspace is private/);
-    await assert.rejects(() => hooks["tool.execute.before"]({ tool: "read", sessionID: "s", callID: "c", agent: "coding-leader" }, { args: { ".crewbeectxt/HANDOFF.md": true } }), /Project Context workspace is private/);
     await hooks["tool.execute.before"]({ tool: "read", sessionID: "s", callID: "c", agent: "project-context-maintainer" }, { args: { filePath: ".crewbeectxt/HANDOFF.md" } });
     const redacted = { result: { ".crewbeectxt/HANDOFF.md": "listed .crewbeectxt/HANDOFF.md and src/index.ts" } };
-    await hooks["tool.execute.after"]({ tool: "bash", sessionID: "s", callID: "c", agent: "coding-leader" }, redacted);
+    await hooks["tool.execute.after"]({ tool: "bash", sessionID: "s", callID: "c", agent: "coding-leader", args: { command: "npm test" } }, redacted);
     assert.deepEqual(redacted.result, { "[project-context-private]": "listed [project-context-private] and src/index.ts" });
-    const output = await hooks.tool.project_context_prepare.execute({ goal: "Understand current plan." }, {
-      sessionID: "parent-session",
-      messageID: "message",
-      agent: "coding-leader",
-      directory: root,
-      worktree: root,
-      abort: new AbortController().signal,
-      metadata() {}
-    });
-    assert.match(output, /Project Context Prepare completed:/);
-    assert.match(output, /Summary:/);
-    assert.match(output, /Prepared context:/);
-    assert.match(output, /Project Context Brief/);
-    assert.equal(promptAsyncCalls, 0);
+
+    await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
     const rootSystem = { system: [] };
     await hooks["experimental.chat.system.transform"]({ sessionID: "parent-session", model: {} }, rootSystem);
     assert.equal(rootSystem.system.length, 1);
-    assert.match(rootSystem.system[0], /Use project_context_prepare/);
-    assert.doesNotMatch(rootSystem.system[0], /Project Context Brief|STATE\.yaml|HANDOFF\.md|PLAN\.yaml|observations/);
+    assert.match(rootSystem.system[0], /Project Context is prepared automatically/);
+    assert.match(rootSystem.system[0], /Project Context Brief/);
+    assert.doesNotMatch(rootSystem.system[0], /.crewbeectxt|STATE\.yaml|HANDOFF\.md|PLAN\.yaml|observations/);
+    const followupSystem = { system: [] };
+    await hooks["experimental.chat.system.transform"]({ sessionID: "parent-session", model: {} }, followupSystem);
+    assert.equal(followupSystem.system.length, 1);
+    assert.doesNotMatch(followupSystem.system[0], /Project Context Brief/);
     const childSystem = { system: [] };
     await hooks["experimental.chat.system.transform"]({ sessionID: "child-session", model: {} }, childSystem);
     assert.equal(childSystem.system.length, 0);
-    await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
-    const updateOutput = await hooks.tool.project_context_update.execute({ goal: "Record a decision.", update_type: "decision", facts: ["prepare is local"] }, {
+
+    const searchOutput = await hooks.tool.project_context_search.execute({ goal: "project objective" }, {
       sessionID: "parent-session",
       messageID: "message",
       agent: "coding-leader",
@@ -347,23 +286,17 @@ test("OpenCode plugin exposes hidden maintainer and four tools without compactio
       abort: new AbortController().signal,
       metadata() {}
     });
-    assert.match(updateOutput, /Project Context updated/);
-    const finalizeOutput = await hooks.tool.project_context_finalize.execute({ summary: "Updated project context." }, {
-      sessionID: "parent-session",
-      messageID: "message",
-      agent: "coding-leader",
-      directory: root,
-      worktree: root,
-      abort: new AbortController().signal,
-      metadata() {}
-    });
-    assert.match(finalizeOutput, /Project Context finalized/);
-    assert.doesNotMatch(finalizeOutput, /\.crewbeectxt|STATE\.yaml|HANDOFF\.md|MEMORY_INDEX|observations/);
+    assert.doesNotMatch(searchOutput, /.crewbeectxt/);
+    assert.equal(promptAsyncCalls, 1);
+
+    await hooks["tool.execute.after"]({ tool: "bash", sessionID: "parent-session", callID: "test", agent: "coding-leader", args: { command: "npm test" } }, { result: "ok" });
+    await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(promptAsyncCalls, 2);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
-
 test("bundled OpenCode server entrypoint matches package plugin shape", async () => {
   const rootMod = await import(`../opencode-plugin.mjs?test=${Date.now()}`);
   const mod = await import("../dist/opencode-plugin.mjs");
@@ -507,9 +440,9 @@ test("runtime log uses OpenCode log directory and text lines", async () => {
   const previousDataHome = process.env.XDG_DATA_HOME;
   try {
     process.env.XDG_DATA_HOME = dataHome;
-    await writeRuntimeLog(root, { component: "tool-guard", event: "allow-project-context-tool", sessionID: "s", agent: "coding-leader", tool: "project_context_prepare" });
+    await writeRuntimeLog(root, { component: "tool-guard", event: "allow-project-context-tool", sessionID: "s", agent: "coding-leader", tool: "project_context_search" });
     const logText = await readFile(path.join(dataHome, "opencode", "log", "crewbee", "crewbee-project-context-s.log"), "utf8");
-    assert.match(logText, /tool-guard allow-project-context-tool session=s agent=coding-leader tool=project_context_prepare/);
+    assert.match(logText, /tool-guard allow-project-context-tool session=s agent=coding-leader tool=project_context_search/);
     assert.doesNotMatch(logText, /^\{/m);
     await assert.rejects(() => readFile(path.join(dataHome, "opencode", "log", "crewbee-project-context.log"), "utf8"));
     await assert.rejects(() => readFile(path.join(root, ".local", "crewbee-project-context", "runtime.jsonl"), "utf8"));
@@ -549,7 +482,7 @@ test("install doctor verifies plugin entry, order, hidden maintainer, and tools"
     assert.equal(result.healthy, true, JSON.stringify(result, null, 2));
     assert.equal(result.hasRecommendedPluginOrder, true);
     assert.equal(result.hasHiddenMaintainerAgent, true);
-    assert.equal(result.hasFourToolSurface, true);
+    assert.equal(result.hasSearchToolSurface, true);
     assert.equal(result.noProjectContextReadTool, true);
     assert.equal(result.noCompactionHook, true);
     assert.equal(result.maintainerTaskDeniedForPrimaryAgent, true);

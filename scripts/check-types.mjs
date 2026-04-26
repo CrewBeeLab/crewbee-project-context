@@ -3,7 +3,6 @@ import * as api from "../dist/src/index.js";
 const required = [
   "prepareProjectContext",
   "searchProjectContext",
-  "requestProjectContextFinalize",
   "createCrewBeeProjectContextExtension",
   "buildCrewBeePromptFragment",
   "getCrewBeeToolNames",

@@ -1,13 +1,13 @@
+import { ProjectContextService } from "../../service/project-context-service.js";
 import type { OpenCodeClientLike } from "./types.js";
 import { writeRuntimeLog } from "./runtime-log.js";
 
 const RUNTIME_RULE = [
-  "Project Context is available through crewbee-project-context.",
-  "Use project_context_prepare when prior project architecture, implementation state, plan, or decisions may affect the task.",
-  "Use project_context_search only when prepared context is insufficient.",
-  "Use project_context_update only when explicitly preserving mid-task project context.",
-  "After material changes, call project_context_finalize with summary, changed files, verification, blockers, and next actions."
+  "Project Context is prepared automatically when needed.",
+  "Use project_context_search only if the prepared context is missing or insufficient for prior project decisions, plan, risks, or implementation history."
 ].join("\n");
+
+const preparedSessions = new Set<string>();
 
 function readParentID(session: unknown): string | undefined {
   if (typeof session !== "object" || session === null || Array.isArray(session)) return undefined;
@@ -39,10 +39,19 @@ async function shouldInjectProjectContext(input: { sessionID?: string }, client:
   }
 }
 
-export function createProjectContextSystemTransformHook(input: { client: OpenCodeClientLike; projectRoot: string }) {
+export function createProjectContextSystemTransformHook(input: { service: ProjectContextService; client: OpenCodeClientLike; projectRoot: string }) {
   return async (hookInput: { sessionID?: string; model: unknown }, output: { system: string[] }): Promise<void> => {
     if (!(await shouldInjectProjectContext(hookInput, input.client, input.projectRoot))) return;
-    output.system.push(RUNTIME_RULE);
-    await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "injected", sessionID: hookInput.sessionID, details: { hasPrimer: false } });
+    const sessionID = hookInput.sessionID;
+    const shouldPrepare = sessionID !== undefined && !preparedSessions.has(sessionID);
+    if (!shouldPrepare) {
+      output.system.push(RUNTIME_RULE);
+      await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "injected", sessionID: hookInput.sessionID, details: { hasPrimer: false } });
+      return;
+    }
+    const brief = await input.service.prepareContext({ goal: "Prepare automatic project context for the current user task.", budget: "compact" });
+    if (sessionID !== undefined) preparedSessions.add(sessionID);
+    output.system.push(`${RUNTIME_RULE}\n\n${brief.text}`);
+    await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "auto-prepare", sessionID: hookInput.sessionID, details: { estimatedTokens: brief.estimatedTokens, warnings: brief.warnings.length } });
   };
 }

@@ -25,7 +25,7 @@ export async function runInstallDoctor(options: DoctorOptions = {}): Promise<Doc
   const configMatchesCanonical = currentPluginEntries.length === 1 && currentPluginEntries[0] === expectedPluginEntry;
   const pluginSurface = hasPluginFile ? await inspectPluginSurface(pluginPath, installRoot) : emptyPluginSurface();
   const orderOk = hasRecommendedPluginOrder(config);
-  const healthy = hasWorkspaceManifest && hasInstalledPackage && hasPluginFile && configMatchesCanonical && orderOk && pluginSurface.hasHiddenMaintainerAgent && pluginSurface.hasFourToolSurface && pluginSurface.noProjectContextReadTool && pluginSurface.noCompactionHook && pluginSurface.maintainerTaskDeniedForPrimaryAgent && pluginSurface.hasToolPrivatePathGuard && pluginSurface.hasToolOutputRedactor;
+  const healthy = hasWorkspaceManifest && hasInstalledPackage && hasPluginFile && configMatchesCanonical && orderOk && pluginSurface.hasHiddenMaintainerAgent && pluginSurface.hasSearchToolSurface && pluginSurface.noProjectContextReadTool && pluginSurface.noCompactionHook && pluginSurface.maintainerTaskDeniedForPrimaryAgent && pluginSurface.hasToolPrivatePathGuard && pluginSurface.hasToolOutputRedactor;
 
   return {
     configPath,
@@ -38,7 +38,7 @@ export async function runInstallDoctor(options: DoctorOptions = {}): Promise<Doc
     hasRecommendedPluginOrder: orderOk,
     hasToolOutputRedactor: pluginSurface.hasToolOutputRedactor,
     hasToolPrivatePathGuard: pluginSurface.hasToolPrivatePathGuard,
-    hasFourToolSurface: pluginSurface.hasFourToolSurface,
+    hasSearchToolSurface: pluginSurface.hasSearchToolSurface,
     hasWorkspaceManifest,
     healthy,
     installedPackageRoot,
@@ -54,7 +54,7 @@ function emptyPluginSurface() {
     hasHiddenMaintainerAgent: false,
     hasToolOutputRedactor: false,
     hasToolPrivatePathGuard: false,
-    hasFourToolSurface: false,
+    hasSearchToolSurface: false,
     maintainerTaskDeniedForPrimaryAgent: false,
     noCompactionHook: false,
     noProjectContextReadTool: false
@@ -82,7 +82,7 @@ async function inspectPluginSurface(pluginPath: string, worktree: string): Promi
     hasHiddenMaintainerAgent: maintainer.mode === "subagent" && maintainer.hidden === true,
     hasToolOutputRedactor,
     hasToolPrivatePathGuard,
-    hasFourToolSurface: toolNames.join("|") === "project_context_finalize|project_context_prepare|project_context_search|project_context_update",
+    hasSearchToolSurface: toolNames.join("|") === "project_context_search",
     maintainerTaskDeniedForPrimaryAgent: taskPermission["project-context-maintainer"] === "deny",
     noCompactionHook: !("experimental.session.compacting" in readRecord(hooks)),
     noProjectContextReadTool: !toolNames.includes("project_context_read")

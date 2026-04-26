@@ -69,7 +69,7 @@ export class ContextCapsuleBuilder {
       ...(currentSnapshot ? ["", "Current snapshot:", this.firstLines(currentSnapshot, 4)] : []),
       "",
       "Context access:",
-      "- Use project_context_prepare/search/update/finalize. Internal workspace details are not part of the main-agent context.",
+      "- Project Context prepare and update are automatic. Use project_context_search only when automatic context is insufficient.",
       "",
       "Current implementation:",
       ...(implementationHighlights.length > 0 ? implementationHighlights.map((item) => `- ${item}`) : ["- No implementation highlights recorded."]),
@@ -82,7 +82,7 @@ export class ContextCapsuleBuilder {
       "High-signal memory:",
       ...(memories.length > 0 ? memories.map((entry) => `- ${entry.id ?? "memory"} ${entry.type ?? ""}: ${this.sanitizePrivateWorkspaceText(entry.summary ?? "")}`.trim()) : ["- none recorded"]),
       "",
-      "Agent rule: Use project_context_prepare first. Use project_context_search only when prepared context is insufficient. Use project_context_update for explicit mid-task context updates. Use project_context_finalize after material changes."
+      "Agent rule: Project Context is prepared and updated automatically. Use project_context_search only for rare historical context gaps."
     ];
     const text = this.enforceBudget(this.sanitizePrivateWorkspaceText(lines.filter((line): line is string => typeof line === "string").join("\n")), budgetTokens);
     return { text, estimatedTokens: this.estimateTokens(text), warnings: warnings.map((warning) => this.sanitizePrivateWorkspaceText(warning)) };

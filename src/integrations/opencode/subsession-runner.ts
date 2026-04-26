@@ -2,7 +2,7 @@ import { PROJECT_CONTEXT_MAINTAINER_AGENT_ID } from "./maintainer-prompt.js";
 import type { OpenCodeClientLike } from "./types.js";
 import { writeRuntimeLog } from "./runtime-log.js";
 
-export type MaintainerJobKind = "search" | "update" | "finalize";
+export type MaintainerJobKind = "search" | "update";
 
 export interface MaintainerJob {
   kind: MaintainerJobKind;
@@ -44,8 +44,7 @@ interface MaintainerRunLogEvent {
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_JOB_TIMEOUT_MS: Record<MaintainerJobKind, number> = {
   search: 45_000,
-  update: 90_000,
-  finalize: 120_000
+  update: 90_000
 };
 const DEFAULT_POLL_INTERVAL_MS = 500;
 const API_CALL_TIMEOUT_MS = 15_000;

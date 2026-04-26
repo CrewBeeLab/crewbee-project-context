@@ -1,18 +1,16 @@
 export type {
   ContextBudget,
   CrewBeePromptFragment,
-  FinalizeResult,
   PrepareContextRequest,
   ProjectContextBrief,
   ProjectContextSearchRequest,
-  SessionSummary
 } from "./core/types.js";
 export { CrewBeeProjectContextBridge, CrewBeeProjectContextExtension } from "./integrations/crewbee/extension.js";
 export { PROJECT_CONTEXT_MAINTAINER_AGENT } from "./integrations/crewbee/internal-agent.js";
 export { CREWBEE_PROJECT_CONTEXT_TOOL_NAMES } from "./integrations/crewbee/tool-definitions.js";
 export { ProjectContextOpenCodePlugin } from "./integrations/opencode/plugin.js";
 
-import type { PrepareContextRequest, ProjectContextSearchRequest, SessionSummary } from "./core/types.js";
+import type { PrepareContextRequest, ProjectContextSearchRequest } from "./core/types.js";
 import { CrewBeeProjectContextExtension } from "./integrations/crewbee/extension.js";
 import { ProjectContextService } from "./service/project-context-service.js";
 
@@ -30,10 +28,6 @@ export function searchProjectContext(root: string | undefined, goal: string, opt
   const request: ProjectContextSearchRequest = { goal };
   if (options?.budget !== undefined) request.budget = options.budget;
   return service(root).searchProjectContext(request);
-}
-
-export function requestProjectContextFinalize(root?: string, summary?: SessionSummary) {
-  return service(root).finalizeSession(summary);
 }
 
 export function createCrewBeeProjectContextExtension(root?: string) {

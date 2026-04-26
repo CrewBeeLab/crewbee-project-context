@@ -9,7 +9,10 @@ OpenCode
   ├─ plugin: crewbee
   │   └─ Agent Team / Leader / Prompt Projection / Delegation / Runtime
   └─ plugin: crewbee-project-context
-      └─ Project Context / .crewbeectxt / Maintainer / Handoff / Memory
+      ├─ Auto Prepare
+      ├─ Auto Update
+      ├─ Visible Tool: project_context_search
+      └─ Hidden Maintainer
 ```
 
 Project Context 的生产 scaffold 目录固定为 `.crewbeectxt/`，与 CrewBee 本体可能使用的 `.crewbee/` 明确分离。
@@ -17,70 +20,53 @@ Project Context 的生产 scaffold 目录固定为 `.crewbeectxt/`，与 CrewBee
 ## 2. 核心原则
 
 - 不限制 CrewBee 主 Agent 的 edit/write 权限。
-- 主 Agent 只看到 `project_context_prepare`、`project_context_search`、`project_context_finalize` 三个工具。
+- 主 Agent 只看到 `project_context_search` 一个工具。
+- prepare 自动执行：本地 I/O，快速注入 compact brief。
+- update 自动执行：主 Agent 回复完成后，按 material change 判断是否启动 hidden maintainer。
 - 不提供 `project_context_read`，不暴露 `.crewbeectxt/` 文件菜单。
-- Maintainer 是 OpenCode hidden subagent，通过工具内部 subsession 被动调用。
+- Maintainer 是 OpenCode hidden subagent，通过插件 runtime 被动调用。
 - 不使用 `experimental.session.compacting`。
 - Maintainer 只维护 `.crewbeectxt/**`，不写业务代码。
 
 ## 3. OpenCode hooks
 
-插件只使用：
+插件使用：
 
 ```text
 config
 tool
+event
 experimental.chat.system.transform
-```
-
-不使用：
-
-```text
-experimental.session.compacting
-chat.message
+tool.execute.before
+tool.execute.after
 ```
 
 `config` 注入 hidden subagent `project-context-maintainer`，并给 visible primary/all agents 增加 task deny，防止直接 Task 调用 maintainer。
 
-`tool` 注册三工具：
+`tool` 只注册：
 
 ```text
-project_context_prepare
 project_context_search
-project_context_finalize
 ```
 
-`system transform` 只注入极短 Runtime Rule + compact Context Capsule。
+`experimental.chat.system.transform` 注入极短 Runtime Rule，并在需要时自动注入 Project Context Brief。
 
-`tool.execute.before` 只兜底阻止直接 Task `project-context-maintainer`，不拦截主 Agent 写 `.crewbee/` 或其它业务文件。
+`event` 监听 `session.idle`，用于自动 update 评估。
+
+`tool.execute.before/after` 用于私有路径 guard、输出脱敏，以及记录 material change 信号。
 
 ## 4. Hidden Maintainer Agent
 
-注入配置形态：
+Maintainer 配置为 `mode: subagent`、`hidden: true`。主 Agent 不感知 maintainer 的存在；插件内部创建 subsession 并等待最终结果，不暴露 session id、状态或中间输出。
 
-```json
-{
-  "agent": {
-    "project-context-maintainer": {
-      "mode": "subagent",
-      "hidden": true,
-      "description": "Internal project context maintainer. Invoked only by project_context_* tools.",
-      "permission": {
-        "read": { "*": "allow", "*.env": "deny", "*.env.*": "deny" },
-        "glob": "allow",
-        "grep": "allow",
-        "edit": { "*": "deny", ".crewbeectxt/**": "allow" },
-        "bash": { "*": "deny", "git status *": "allow", "git diff *": "allow", "git log *": "allow" },
-        "webfetch": "deny",
-        "websearch": "deny",
-        "task": "deny"
-      }
-    }
-  }
-}
+Maintainer 权限：
+
+```text
+read/glob/grep: allow
+edit: only .crewbeectxt/**
+bash: only git status/diff/log
+webfetch/websearch/task/session/project_context_*: deny
 ```
-
-主 Agent 不感知 maintainer 的存在；工具内部创建 subsession 并等待最终结果，不暴露 session id、状态或中间输出。
 
 ## 5. `.crewbeectxt/` 工作区
 
@@ -100,42 +86,60 @@ project_context_finalize
   cache/
 ```
 
-启动时如果不存在 `.crewbeectxt/`，插件保持 ephemeral mode，不写文件；首次 `project_context_finalize` 且存在 material progress 时自动 bootstrap。
+启动时如果不存在 `.crewbeectxt/`，auto prepare 快速降级。auto update 只有检测到 material change 时才尝试通过 maintainer 维护 context。
 
-## 6. 工具行为
+## 6. 自动 Prepare
 
-### `project_context_prepare`
+Auto Prepare 是 prompt 构建阶段的本地动作，不是工具：
 
-参数：`goal`、可选 `task_type`、可选 `budget`。
-
-内部流程：创建 maintainer subsession，让 Maintainer 准备 compact Task Context Brief。
-
-### `project_context_search`
-
-参数：`goal`、可选 `budget`。
-
-内部流程：Maintainer 自行决定查 memory、decisions、handoff、implementation 或 observations，并返回 compact findings。
-
-### `project_context_finalize`
-
-参数：`summary`、`changed_files`、`verification`、`blockers`、`next_actions`。
-
-内部流程：Maintainer 维护 `.crewbeectxt/**`，插件随后执行 doctor；doctor 失败则工具返回失败。
-
-## 7. 安装与发布
-
-包名与 OpenCode 插件 entry：
-
-```json
-{
-  "name": "crewbee-project-context",
-  "main": "./dist/opencode-plugin.mjs",
-  "exports": {
-    ".": "./dist/src/index.js",
-    "./server": "./dist/opencode-plugin.mjs"
-  }
-}
+```text
+system transform
+  -> 判断是否需要 prepare
+  -> ProjectContextService.prepareContext()
+  -> 注入 compact Project Context Brief
 ```
+
+约束：
+
+```text
+不调用 LLM
+不创建 subsession
+不调用 hidden maintainer
+不读取代码仓库全文
+不暴露 .crewbeectxt 路径
+```
+
+## 7. 手动 Search
+
+`project_context_search` 是唯一主 Agent 可见工具。
+
+使用原则：只有自动 brief 缺失或不足，并且任务依赖历史决策、计划、风险、实现背景时才调用。它不用于普通代码搜索。
+
+内部流程：
+
+```text
+project_context_search
+  -> MaintainerJob(search)
+  -> hidden project-context-maintainer subsession
+  -> 返回 compact findings
+```
+
+## 8. 自动 Update
+
+Auto Update 是主 Agent 回复完成后的自动维护动作，不是工具：
+
+```text
+tool.execute.after 收集 material signals
+session.idle 触发 AutoUpdateManager
+如果无 material change：skip
+如果有 material change：MaintainerJob(update)
+```
+
+Material change 信号包括：文件编辑、测试/构建/typecheck/lint、关键决策、计划变化、阻塞、用户明确要求记录上下文，以及 search 后产生长期有效结论。
+
+Update 失败只写日志和内部状态，不污染主 Agent 当前回复；下一轮 prepare 继续使用现有 context。
+
+## 9. 安装与发布
 
 推荐 OpenCode config：
 
@@ -145,13 +149,26 @@ project_context_finalize
 }
 ```
 
-## 8. MVP 验收
+常用验证：
+
+```bash
+npm run typecheck
+npm test
+npm run diagnostics
+npm run install:local:user
+npm run doctor
+```
+
+## 10. MVP 验收
 
 - OpenCode 能通过 package plugin entry 加载 `crewbee-project-context`。
 - 插件不注册 compaction hook。
-- 主 Agent 只看到三工具，不看到 maintainer、read 工具或 scaffold 文件菜单。
-- hidden maintainer 通过 subsession 执行 prepare/search/finalize。
-- `.crewbeectxt/` 只在 material finalize 时创建或更新。
-- finalize 后 doctor 通过。
+- 主 Agent 只看到 `project_context_search`。
+- session 首次 root prompt 自动注入 brief。
+- follow-up 不重复注入 brief。
+- 有 material change 且 session idle 后自动触发 update。
+- hidden maintainer 通过 subsession 执行 search/update。
+- `.crewbeectxt/` 不暴露给主 Agent。
+- doctor 通过。
 
-一句话：CrewBee 管“谁来做事”；`crewbee-project-context` 管“工程上下文如何持续维护”；`.crewbeectxt/` 是 Project Context 的私有执行态事实源。
+一句话：CrewBee 管“谁来做事”；`crewbee-project-context` 自动准备和维护工程上下文；主 Agent 只在少数需要历史背景时使用 `project_context_search`。
