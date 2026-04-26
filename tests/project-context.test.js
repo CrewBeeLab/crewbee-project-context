@@ -273,6 +273,11 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     await hooks["experimental.chat.system.transform"]({ sessionID: "parent-session", model: {} }, followupSystem);
     assert.equal(followupSystem.system.length, 1);
     assert.doesNotMatch(followupSystem.system[0], /Project Context Brief/);
+    await writeFile(path.join(root, [".", "crewbeectxt"].join(""), "HANDOFF.md"), "# Handoff\n\nRevision changed.\n", "utf8");
+    const revisionSystem = { system: [] };
+    await hooks["experimental.chat.system.transform"]({ sessionID: "parent-session", model: {} }, revisionSystem);
+    assert.equal(revisionSystem.system.length, 1);
+    assert.match(revisionSystem.system[0], /Project Context Brief/);
     const childSystem = { system: [] };
     await hooks["experimental.chat.system.transform"]({ sessionID: "child-session", model: {} }, childSystem);
     assert.equal(childSystem.system.length, 0);
@@ -293,6 +298,11 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
     await new Promise((resolve) => setTimeout(resolve, 10));
     assert.equal(promptAsyncCalls, 2);
+
+    await hooks.event({ event: { type: "message.updated", properties: { sessionID: "parent-session", info: { role: "assistant" }, parts: [{ type: "text", text: "决定采用 auto update，下一步补充验证。" }] } } });
+    await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(promptAsyncCalls, 3);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

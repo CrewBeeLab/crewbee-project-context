@@ -27,6 +27,53 @@ function readSessionID(event: unknown): string | undefined {
   return typeof nested === "string" ? nested : undefined;
 }
 
+function readRole(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (typeof record.role === "string") return record.role;
+  if (typeof record.info === "object" && record.info !== null && !Array.isArray(record.info)) return readRole(record.info);
+  if (typeof record.message === "object" && record.message !== null && !Array.isArray(record.message)) return readRole(record.message);
+  if (typeof record.properties === "object" && record.properties !== null && !Array.isArray(record.properties)) return readRole(record.properties);
+  return undefined;
+}
+
+function collectText(value: unknown, output: string[]): void {
+  if (typeof value === "string") {
+    output.push(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectText(item, output);
+    return;
+  }
+  if (typeof value !== "object" || value === null) return;
+  const record = value as Record<string, unknown>;
+  for (const key of ["text", "content", "output"]) {
+    if (typeof record[key] === "string") output.push(record[key]);
+  }
+  for (const key of ["parts", "message", "data", "properties", "info"]) collectText(record[key], output);
+}
+
+function readEventText(event: unknown): string {
+  const chunks: string[] = [];
+  collectText(event, chunks);
+  return chunks.join("\n").trim();
+}
+
+function textMaterialReasons(role: string | undefined, text: string): string[] {
+  if (text.length === 0) return [];
+  const lower = text.toLowerCase();
+  const reasons: string[] = [];
+  if (role === "assistant") {
+    if (/(决定|采用|废弃|改为|最终方案|decision|decided|adopt|deprecate)/i.test(text)) reasons.push("decision");
+    if (/(计划|下一步|后续|todo|next step|plan|follow-up)/i.test(text)) reasons.push("plan_or_next_actions");
+    if (/(阻塞|失败|无法继续|待确认|blocker|blocked|failed|cannot proceed)/i.test(text)) reasons.push("blocker");
+    if (/(已实现|已修复|重构|迁移|implemented|fixed|refactored|migrated)/i.test(text)) reasons.push("implementation_state");
+  }
+  if (role === "user" && /(记录到上下文|更新上下文|更新项目记忆|record.*context|update.*context)/i.test(lower)) reasons.push("user_requested_context_update");
+  return [...new Set(reasons)];
+}
+
 function stringifyArgs(args: unknown): string {
   try {
     return JSON.stringify(args ?? {});
@@ -61,6 +108,15 @@ export class AutoUpdateManager {
 
   public async handleEvent(input: { event: unknown }): Promise<void> {
     const type = readEventType(input.event);
+    if (type?.startsWith("message.")) {
+      const sessionID = readSessionID(input.event);
+      if (!sessionID) return;
+      const state = this.state(sessionID);
+      for (const reason of textMaterialReasons(readRole(input.event), readEventText(input.event))) {
+        state.materialReasons.add(reason);
+      }
+      return;
+    }
     if (type !== "session.idle") return;
     const sessionID = readSessionID(input.event);
     if (!sessionID) return;
