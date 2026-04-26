@@ -19,14 +19,14 @@ import { ProjectContextService } from "./service/project-context-service.js";
 const service = (root?: string): ProjectContextService => new ProjectContextService(root);
 const extension = (root?: string): CrewBeeProjectContextExtension => new CrewBeeProjectContextExtension(service(root));
 
-export function prepareProjectContext(root: string | undefined, goal: string, options?: { taskType?: string; budget?: "compact" | "normal" | "deep" }) {
+export function prepareProjectContext(root: string | undefined, goal: string, options?: { taskType?: string; budget?: "compact" | "normal" }) {
   const request: PrepareContextRequest = { goal };
   if (options?.taskType !== undefined) request.taskType = options.taskType;
   if (options?.budget !== undefined) request.budget = options.budget;
   return service(root).prepareContext(request);
 }
 
-export function searchProjectContext(root: string | undefined, goal: string, options?: { budget?: "compact" | "normal" | "deep" }) {
+export function searchProjectContext(root: string | undefined, goal: string, options?: { budget?: "compact" | "normal" }) {
   const request: ProjectContextSearchRequest = { goal };
   if (options?.budget !== undefined) request.budget = options.budget;
   return service(root).searchProjectContext(request);

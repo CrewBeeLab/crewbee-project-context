@@ -42,16 +42,27 @@ export class ProjectContextService {
   }
 
   public async prepareContext(request: PrepareContextRequest): Promise<ProjectContextBrief> {
-    const primer = await this.capsule.build({ budgetTokens: this.prepareBudgetTokens(request.budget) });
+    const detection = await this.detect();
+    if (!detection.found) {
+      const text = [
+        "Project Context Brief",
+        "- No persisted project context is available yet.",
+        "- Continue with normal code exploration.",
+        "- Call project_context_finalize or project_context_update when there is project context worth preserving."
+      ].join("\n");
+      return { text, estimatedTokens: this.estimateTokens(text), warnings: [] };
+    }
+    const useExtendedContext = request.budget === "normal";
+    const primer = await this.capsule.build({ budgetTokens: this.prepareBudgetTokens(request.budget), includeProject: useExtendedContext, includeExtended: useExtendedContext, goal: request.goal });
     return {
-      text: `Task Context Brief\n\nGoal:\n- ${request.goal}\n\n${primer.text}`,
+      text: primer.text,
       estimatedTokens: primer.estimatedTokens,
       warnings: primer.warnings
     };
   }
 
   public async searchProjectContext(request: ProjectContextSearchRequest): Promise<ProjectContextBrief> {
-    const result = await this.searcher.search(request.goal, { limit: request.budget === "deep" ? 10 : 5 });
+    const result = await this.searcher.search(request.goal, { limit: 5 });
     const findings = result.items.length > 0
       ? result.items.map((item, index) => `${index + 1}. ${item.excerpt}`).join("\n")
       : "No relevant project context found.";
@@ -61,10 +72,6 @@ export class ProjectContextService {
 
   public estimateTokens(text: string): number {
     return this.capsule.estimateTokens(text);
-  }
-
-  public readContextFile(requestedPath: string): Promise<{ path: string; text: string }> {
-    return this.store.readContextFile(requestedPath);
   }
 
   public searchContext(query: string, options?: { limit?: number }): Promise<ContextSearchResult> {
@@ -80,7 +87,6 @@ export class ProjectContextService {
   }
 
   private prepareBudgetTokens(budget: PrepareContextRequest["budget"]): number {
-    if (budget === "deep") return 1600;
     if (budget === "normal") return 1200;
     return 1000;
   }

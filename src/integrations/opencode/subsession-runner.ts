@@ -1,10 +1,8 @@
-import { appendFile, mkdir } from "node:fs/promises";
-import path from "node:path";
 import { PROJECT_CONTEXT_MAINTAINER_AGENT_ID } from "./maintainer-prompt.js";
 import type { OpenCodeClientLike } from "./types.js";
 import { writeRuntimeLog } from "./runtime-log.js";
 
-export type MaintainerJobKind = "prepare" | "search" | "finalize";
+export type MaintainerJobKind = "search" | "update" | "finalize";
 
 export interface MaintainerJob {
   kind: MaintainerJobKind;
@@ -13,7 +11,6 @@ export interface MaintainerJob {
   callerAgent: string;
   projectRoot: string;
   goal?: string;
-  taskType?: string;
   budget?: "compact" | "normal";
   payload?: Record<string, unknown>;
 }
@@ -29,6 +26,7 @@ export interface MaintainerRunOptions {
   abort?: AbortSignal;
   timeoutMs?: number;
   pollIntervalMs?: number;
+  fallback?: (reason: string) => MaintainerRunResult;
 }
 
 interface MaintainerRunLogEvent {
@@ -44,18 +42,23 @@ interface MaintainerRunLogEvent {
 }
 
 const DEFAULT_TIMEOUT_MS = 120_000;
+const DEFAULT_JOB_TIMEOUT_MS: Record<MaintainerJobKind, number> = {
+  search: 45_000,
+  update: 90_000,
+  finalize: 120_000
+};
 const DEFAULT_POLL_INTERVAL_MS = 500;
 const API_CALL_TIMEOUT_MS = 15_000;
-const LOG_FILE_NAME = "maintainer-runs.jsonl";
 const MAINTAINER_DISABLED_TOOLS = {
   project_context_prepare: false,
   project_context_search: false,
+  project_context_update: false,
   project_context_finalize: false
 } as const;
 
-function maintainerTimeoutMs(): number {
+function maintainerTimeoutMs(kind: MaintainerJobKind): number {
   const raw = process.env.CREWBEE_PROJECT_CONTEXT_MAINTAINER_TIMEOUT_MS;
-  if (!raw) return DEFAULT_TIMEOUT_MS;
+  if (!raw) return DEFAULT_JOB_TIMEOUT_MS[kind] ?? DEFAULT_TIMEOUT_MS;
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TIMEOUT_MS;
 }
@@ -111,14 +114,6 @@ function asArray(value: unknown): unknown[] {
 }
 
 async function writeRunLog(projectRoot: string, event: MaintainerRunLogEvent): Promise<void> {
-  const logDir = path.join(projectRoot, ".crewbeectxt", "tmp");
-  const logPath = path.join(logDir, LOG_FILE_NAME);
-  try {
-    await mkdir(logDir, { recursive: true });
-    await appendFile(logPath, `${JSON.stringify({ ts: new Date().toISOString(), ...event })}\n`, "utf8");
-  } catch (logError) {
-    void logError; // Logging must never block or fail the user-facing tool call.
-  }
   await writeRuntimeLog(projectRoot, {
     component: "maintainer-runner",
     event: event.event,
@@ -201,13 +196,12 @@ function renderJob(job: MaintainerJob): string {
     `Caller agent: ${job.callerAgent}`,
     `Project root: ${job.projectRoot}`,
     job.goal ? `Goal: ${job.goal}` : undefined,
-    job.taskType ? `Task type: ${job.taskType}` : undefined,
     job.budget ? `Budget: ${job.budget}` : undefined,
-    job.payload ? `Payload JSON:\n${JSON.stringify(job.payload, null, 2)}` : undefined,
-    "",
-    job.kind === "finalize"
-      ? "Maintain the project context workspace if needed, keep changes limited to the project-context scaffold, then return a compact success or failure summary."
-      : "Return only compact, task-relevant project context for the main agent. Do not expose scaffold file paths."
+      job.payload ? `Payload JSON:\n${JSON.stringify(job.payload, null, 2)}` : undefined,
+      "",
+    job.kind === "search"
+      ? "Search the project context workspace by goal, reason across relevant context, then return compact findings. Do not expose scaffold file paths."
+      : "Maintain the project context workspace if needed, keep changes limited to the project-context scaffold, then return a compact success or failure summary."
   ].filter((line): line is string => typeof line === "string").join("\n");
 }
 
@@ -217,12 +211,12 @@ export class MaintainerSubsessionRunner {
   public async run(job: MaintainerJob, options: MaintainerRunOptions = {}): Promise<MaintainerRunResult> {
     const id = runId();
     const startedAt = Date.now();
-    const timeoutMs = options.timeoutMs ?? maintainerTimeoutMs();
+    const timeoutMs = options.timeoutMs ?? maintainerTimeoutMs(job.kind);
     const deadline = Date.now() + timeoutMs;
     const query = { directory: job.projectRoot, workspace: job.projectRoot };
     let sessionID: string | undefined;
     try {
-      await writeRunLog(job.projectRoot, { event: "start", runId: id, jobKind: job.kind, callerAgent: job.callerAgent });
+      await writeRunLog(job.projectRoot, { event: "start", runId: id, jobKind: job.kind, callerAgent: job.callerAgent, sessionID: job.callerSessionID });
       if (aborted(options.abort)) return { ok: false, output: "", error: "Maintainer subsession was aborted before start." };
 
       const created = await withTimeout(this.client.session.create({ body: { parentID: job.callerSessionID, title: job.title }, query }), Math.min(API_CALL_TIMEOUT_MS, timeoutMs), "OpenCode maintainer subsession create");
@@ -260,7 +254,7 @@ export class MaintainerSubsessionRunner {
           void cleanupError; // Best-effort cleanup only; preserve the original failure reason.
         }
       }
-      return { ok: false, output: "", error: reason };
+      return options.fallback?.(reason) ?? { ok: false, output: "", error: reason };
     }
   }
 
@@ -278,6 +272,6 @@ export class MaintainerSubsessionRunner {
       if (statusType === undefined && hasAssistantText(messages)) return extractLastAssistantText(messages);
       await sleep(options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
     }
-    throw new Error(`Maintainer subsession did not complete within ${options.timeoutMs ?? maintainerTimeoutMs()}ms.`);
+    throw new Error(`Maintainer subsession did not complete within ${options.timeoutMs ?? maintainerTimeoutMs(job.kind)}ms.`);
   }
 }

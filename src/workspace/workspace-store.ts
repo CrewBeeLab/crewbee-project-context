@@ -45,11 +45,6 @@ export class FileSystemProjectContextStore {
     };
   }
 
-  public async readContextFile(requestedPath: string): Promise<{ path: string; text: string }> {
-    const absolutePath = this.paths.contextFile(requestedPath);
-    return { path: absolutePath, text: await this.readText(absolutePath) };
-  }
-
   public async listObservationFiles(): Promise<string[]> {
     const observationsDir = this.paths.contextFile("observations");
     if (!(await this.exists(observationsDir))) return [];

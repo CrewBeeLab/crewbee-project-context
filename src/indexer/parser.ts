@@ -55,6 +55,22 @@ export class ProjectContextParser {
     return result;
   }
 
+  public parseMarkdownSectionText(markdown: string, heading: string): string | null {
+    const lines = markdown.split(/\r?\n/);
+    const result: string[] = [];
+    let inSection = false;
+    for (const line of lines) {
+      if (line.trim() === `## ${heading}`) {
+        inSection = true;
+        continue;
+      }
+      if (inSection && line.startsWith("## ")) break;
+      if (inSection) result.push(line);
+    }
+    const text = result.join("\n").trim();
+    return text.length > 0 ? text : null;
+  }
+
   public parseMemoryEntries(text: string, limit = 5): MemoryEntry[] {
     return text
       .split(/\n(?=- ID:)/g)

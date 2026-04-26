@@ -3,7 +3,7 @@ import { containsPrivateContextPath, isProjectContextMaintainer } from "./visibi
 import type { OpenCodeClientLike } from "./types.js";
 import { writeRuntimeLog } from "./runtime-log.js";
 
-const PROJECT_CONTEXT_TOOL_NAMES = new Set(["project_context_prepare", "project_context_search", "project_context_finalize"]);
+const PROJECT_CONTEXT_TOOL_NAMES = new Set(["project_context_prepare", "project_context_search", "project_context_update", "project_context_finalize"]);
 
 function readTarget(args: unknown): string | undefined {
   if (typeof args !== "object" || args === null || Array.isArray(args)) return undefined;
@@ -48,11 +48,11 @@ export function createProjectContextToolGuard(options: { client?: OpenCodeClient
     }
     if (isProjectContextMaintainer(event.agent)) return;
     if (containsPrivateContextPath(event.args) || containsPrivateContextPath(output.args)) {
-      throw new Error("Project Context workspace is private. Use project_context_prepare, project_context_search, or project_context_finalize.");
+      throw new Error("Project Context workspace is private. Use project_context_prepare, project_context_search, project_context_update, or project_context_finalize.");
     }
     if (event.tool !== "task") return;
     const target = readTarget(output.args) ?? readTarget(event.args);
     if (target !== PROJECT_CONTEXT_MAINTAINER_AGENT_ID) return;
-    throw new Error("Do not invoke project-context-maintainer directly. Use project_context_prepare, project_context_search, or project_context_finalize.");
+    throw new Error("Do not invoke project-context-maintainer directly. Use project_context_prepare, project_context_search, project_context_update, or project_context_finalize.");
   };
 }

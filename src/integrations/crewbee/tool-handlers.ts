@@ -1,23 +1,20 @@
 import type { PrepareContextRequest, ProjectContextSearchRequest } from "../../core/types.js";
-import { ProjectContextMaintainer } from "../../maintainer/project-context-maintainer.js";
 import { ProjectContextService } from "../../service/project-context-service.js";
 import type { CrewBeeProjectContextToolName } from "./tool-definitions.js";
 
 export class CrewBeeProjectContextToolHandlers {
-  private readonly maintainer: ProjectContextMaintainer;
-
-  public constructor(service: ProjectContextService) {
-    this.maintainer = new ProjectContextMaintainer(service);
-  }
+  public constructor(private readonly service: ProjectContextService) {}
 
   public async execute(name: CrewBeeProjectContextToolName | string, input: Record<string, unknown> = {}): Promise<unknown> {
     switch (name) {
       case "project_context_prepare":
-        return this.maintainer.prepare(this.toPrepareInput(input));
+        return this.service.prepareContext(this.toPrepareInput(input));
       case "project_context_search":
-        return this.maintainer.search(this.toSearchInput(input));
+        return this.service.searchProjectContext(this.toSearchInput(input));
+      case "project_context_update":
+        return this.service.finalizeSession(this.toUpdateInput(input));
       case "project_context_finalize":
-        return this.maintainer.finalizeRequest(this.toFinalizeInput(input));
+        return this.service.finalizeSession(this.toFinalizeInput(input));
       default:
         throw new Error(`Unknown CrewBee Project Context tool: ${name}`);
     }
@@ -38,6 +35,16 @@ export class CrewBeeProjectContextToolHandlers {
     if (nextActions !== undefined) summary.nextActions = nextActions;
     if (blockers !== undefined) summary.blockers = blockers;
     return summary;
+  }
+
+  private toUpdateInput(input: Record<string, unknown>): Parameters<ProjectContextService["finalizeSession"]>[0] {
+    const goal = this.readString(input, "goal", this.readString(input, "summary", "Update project context."));
+    const facts = this.stringArray(input, "facts") ?? [];
+    const evidence = this.stringArray(input, "evidence") ?? [];
+    return {
+      title: "Project Context Update",
+      summary: [goal, ...facts.map((fact) => `Fact: ${fact}`), ...evidence.map((item) => `Evidence: ${item}`)].join("\n")
+    };
   }
 
   private toPrepareInput(input: Record<string, unknown>): PrepareContextRequest {
@@ -64,9 +71,9 @@ export class CrewBeeProjectContextToolHandlers {
     return typeof input[key] === "string" ? input[key] : undefined;
   }
 
-  private readBudget(input: Record<string, unknown>): "compact" | "normal" | "deep" | undefined {
+  private readBudget(input: Record<string, unknown>): "compact" | "normal" | undefined {
     const value = input.budget;
-    return value === "compact" || value === "normal" || value === "deep" ? value : undefined;
+    return value === "compact" || value === "normal" ? value : undefined;
   }
 
   private stringArray(input: Record<string, unknown>, key: string): string[] | undefined {

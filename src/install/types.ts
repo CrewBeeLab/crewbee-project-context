@@ -42,7 +42,7 @@ export interface DoctorResult {
   hasRecommendedPluginOrder: boolean;
   hasToolOutputRedactor: boolean;
   hasToolPrivatePathGuard: boolean;
-  hasThreeToolSurface: boolean;
+  hasFourToolSurface: boolean;
   hasWorkspaceManifest: boolean;
   healthy: boolean;
   installedPackageRoot: string;

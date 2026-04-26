@@ -29,16 +29,18 @@ export interface ValidationResult {
 export interface PrimerOptions {
   budgetTokens?: number;
   memoryLimit?: number;
+  includeExtended?: boolean;
+  includeProject?: boolean;
+  goal?: string;
 }
 
 export interface ProjectContextPrimer {
   text: string;
   estimatedTokens: number;
-  sourceFiles: string[];
   warnings: string[];
 }
 
-export type ContextBudget = "compact" | "normal" | "deep";
+export type ContextBudget = "compact" | "normal";
 
 export interface PrepareContextRequest {
   goal: string;
@@ -116,7 +118,6 @@ export interface FinalizeResult {
 export interface CrewBeePromptFragment {
   enabled: boolean;
   text: string;
-  sourceFiles: string[];
   warnings: string[];
 }
 

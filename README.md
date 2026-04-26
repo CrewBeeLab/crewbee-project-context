@@ -108,4 +108,4 @@ During development, scaffold source documents live under `templates/crewbeectxt-
 
 ## Current implementation status
 
-This version uses a TypeScript implementation with a small object-oriented service structure and an OpenCode plugin adapter. It ships a root `opencode-plugin.mjs` package entrypoint, hidden `project-context-maintainer` config injection, three OpenCode tools, direct Task maintainer guard, and CrewBee-style user-level install / doctor flow. `.crewbeectxt/` is the product context directory.
+This version uses a TypeScript implementation with a small service core and an OpenCode plugin adapter. It ships a root `opencode-plugin.mjs` package entrypoint, four Project Context tools (prepare, search, update, finalize), private smart-path wiring, direct Task guard, and CrewBee-style user-level install / doctor flow. `.crewbeectxt/` is the product context directory.
