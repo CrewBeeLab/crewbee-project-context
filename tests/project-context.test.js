@@ -196,6 +196,8 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     await assert.rejects(() => hooks["tool.execute.before"]({ tool: "project_context_search", sessionID: "child-session", callID: "c", agent: "worker" }, { args: { goal: "x" } }), /root primary-agent sessions/);
     await assert.rejects(() => hooks["tool.execute.before"]({ tool: "project_context_search", sessionID: "maintainer-session", callID: "c", agent: "project-context-maintainer" }, { args: { goal: "x" } }), /must not call project_context/);
     await assert.rejects(() => hooks["tool.execute.before"]({ tool: "read", sessionID: "s", callID: "c", agent: "coding-leader" }, { args: { filePath: ".crewbeectxt/HANDOFF.md" } }), /Project Context workspace is private/);
+    await hooks["tool.execute.before"]({ tool: "grep", sessionID: "s", callID: "grep", agent: "coding-leader" }, { args: { pattern: [".", "crewbeectxt"].join(""), include: "*.md" } });
+    await hooks["tool.execute.before"]({ tool: "apply_patch", sessionID: "s", callID: "patch", agent: "coding-leader" }, { args: { patchText: `Docs mention ${[".", "crewbeectxt"].join("")} without reading it.` } });
     await hooks["tool.execute.before"]({ tool: "read", sessionID: "s", callID: "c", agent: "project-context-maintainer" }, { args: { filePath: ".crewbeectxt/HANDOFF.md" } });
     const redacted = { result: { ".crewbeectxt/HANDOFF.md": "listed .crewbeectxt/HANDOFF.md and src/index.ts" } };
     await hooks["tool.execute.after"]({ tool: "bash", sessionID: "s", callID: "c", agent: "coding-leader", args: { command: "npm test" } }, redacted);

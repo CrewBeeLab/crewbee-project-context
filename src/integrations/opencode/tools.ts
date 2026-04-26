@@ -27,7 +27,7 @@ export function createProjectContextTools(input: { client: OpenCodeClientLike; s
 
   return {
     [SEARCH_TOOL_NAME]: tool({
-      description: "Search Project Context only when the automatic Project Context Brief is missing or insufficient and the task depends on prior project decisions, plan, implementation state, risks, or history. Do not use this for normal code search.",
+      description: "Rare fallback only. Use project_context_search only when auto init, auto prepare, and auto update still leave a concrete historical project-context gap that blocks the task. Do not use it for normal code search, routine orientation, or when the automatic brief is sufficient.",
       args: {
         goal: schema.string().describe("Context search goal"),
         budget: schema.enum(["compact", "normal"]).optional().describe("Context budget")

@@ -69,7 +69,7 @@ export class ContextCapsuleBuilder {
       ...(currentSnapshot ? ["", "Current snapshot:", this.firstLines(currentSnapshot, 4)] : []),
       "",
       "Context access:",
-      "- Project Context prepare and update are automatic. Use project_context_search only when automatic context is insufficient.",
+      "- Project Context init, prepare, and update are automatic. Treat project_context_search as a rare fallback only for blocking historical context gaps.",
       "",
       "Current implementation:",
       ...(implementationHighlights.length > 0 ? implementationHighlights.map((item) => `- ${item}`) : ["- No implementation highlights recorded."]),
@@ -82,7 +82,7 @@ export class ContextCapsuleBuilder {
       "High-signal memory:",
       ...(memories.length > 0 ? memories.map((entry) => `- ${entry.id ?? "memory"} ${entry.type ?? ""}: ${this.sanitizePrivateWorkspaceText(entry.summary ?? "")}`.trim()) : ["- none recorded"]),
       "",
-      "Agent rule: Project Context is prepared and updated automatically. Use project_context_search only for rare historical context gaps."
+      "Agent rule: Project Context is initialized, prepared, and updated automatically. Do not call project_context_search unless a concrete historical context gap blocks progress."
     ];
     const text = this.enforceBudget(this.sanitizePrivateWorkspaceText(lines.filter((line): line is string => typeof line === "string").join("\n")), budgetTokens);
     return { text, estimatedTokens: this.estimateTokens(text), warnings: warnings.map((warning) => this.sanitizePrivateWorkspaceText(warning)) };

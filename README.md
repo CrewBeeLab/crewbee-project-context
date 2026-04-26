@@ -39,7 +39,7 @@ This repository owns the `.crewbeectxt/` convention and the tools that read, val
 - Detect or lazily bootstrap a `.crewbeectxt/` context workspace on first root-session startup.
 - When the scaffold is missing, create it from templates and start a hidden maintainer initialization job to read project docs, architecture/design notes, package metadata, tests, and main source implementation.
 - Automatically inject a low-token Runtime Rule + Context Brief when needed.
-- Expose only `project_context_search` to the main agent.
+- Expose only `project_context_search` to the main agent, with a high threshold: rare fallback for blocking historical context gaps only.
 - Automatically maintain context after material turns through a hidden OpenCode Context Maintainer subagent.
 - Avoid exposing scaffold file structure through `project_context_read`.
 - Keep the private context workspace out of main-agent prompt/capsule metadata, direct tool args, and non-maintainer tool outputs.

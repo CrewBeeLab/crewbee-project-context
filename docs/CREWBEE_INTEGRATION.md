@@ -98,7 +98,7 @@ Injected rule is compact:
 
 ```text
 Project Context is prepared automatically when needed.
-Use project_context_search only if the prepared context is missing or insufficient for prior project decisions, plan, risks, or implementation history.
+Do not call project_context_search unless auto init/prepare/update still leave a concrete historical project-context gap that blocks the task.
 ```
 
 ## Automatic initialization

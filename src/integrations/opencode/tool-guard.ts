@@ -1,5 +1,5 @@
 import { PROJECT_CONTEXT_MAINTAINER_AGENT_ID } from "./maintainer-prompt.js";
-import { containsPrivateContextPath, isProjectContextMaintainer } from "./visibility.js";
+import { containsPrivateContextAccess, isProjectContextMaintainer } from "./visibility.js";
 import type { OpenCodeClientLike } from "./types.js";
 import { writeRuntimeLog } from "./runtime-log.js";
 
@@ -47,12 +47,12 @@ export function createProjectContextToolGuard(options: { client?: OpenCodeClient
       if (options.projectRoot) await writeRuntimeLog(options.projectRoot, { component: "tool-guard", event: "allow-project-context-tool", sessionID: event.sessionID, agent: event.agent, tool: event.tool });
     }
     if (isProjectContextMaintainer(event.agent)) return;
-    if (containsPrivateContextPath(event.args) || containsPrivateContextPath(output.args)) {
-      throw new Error("Project Context workspace is private. Use project_context_search only when automatic context is insufficient.");
+    if (containsPrivateContextAccess(event.args) || containsPrivateContextAccess(output.args)) {
+      throw new Error("Project Context workspace is private. Do not access it directly; project_context_search is a rare fallback only for blocking historical context gaps.");
     }
     if (event.tool !== "task") return;
     const target = readTarget(output.args) ?? readTarget(event.args);
     if (target !== PROJECT_CONTEXT_MAINTAINER_AGENT_ID) return;
-    throw new Error("Do not invoke project-context-maintainer directly. Project Context prepare and update are automatic; use project_context_search only when automatic context is insufficient.");
+    throw new Error("Do not invoke project-context-maintainer directly. Project Context init, prepare, and update are automatic; project_context_search is a rare fallback only for blocking historical context gaps.");
   };
 }

@@ -21,7 +21,7 @@ Project Context 的生产 scaffold 目录固定为 `.crewbeectxt/`，与 CrewBee
 ## 2. 核心原则
 
 - 不限制 CrewBee 主 Agent 的 edit/write 权限。
-- 主 Agent 只看到 `project_context_search` 一个工具。
+- 主 Agent 只看到 `project_context_search` 一个工具，但调用阈值很高：仅作为阻塞性历史上下文缺口的低频兜底。
 - init 自动执行：首个 root session 启动时，如 scaffold 框架缺失则创建模板并委派 maintainer 初始化。
 - prepare 自动执行：本地 I/O，快速注入 compact brief。
 - update 自动执行：主 Agent 回复完成后，按 material change 判断是否启动 hidden maintainer。
@@ -131,7 +131,7 @@ system transform
 
 `project_context_search` 是唯一主 Agent 可见工具。
 
-使用原则：只有自动 brief 缺失或不足，并且任务依赖历史决策、计划、风险、实现背景时才调用。它不用于普通代码搜索。
+使用原则：默认不调用。只有 auto init / auto prepare / auto update 仍无法提供足够信息，并且存在阻塞任务推进的具体历史项目上下文缺口时才调用。它不用于普通代码搜索、常规熟悉项目或补充性浏览。
 
 内部流程：
 
@@ -192,4 +192,4 @@ npm run doctor
 - `.crewbeectxt/` 不暴露给主 Agent。
 - doctor 通过。
 
-一句话：CrewBee 管“谁来做事”；`crewbee-project-context` 自动准备和维护工程上下文；主 Agent 只在少数需要历史背景时使用 `project_context_search`。
+一句话：CrewBee 管“谁来做事”；`crewbee-project-context` 自动准备和维护工程上下文；主 Agent 只在自动上下文仍不足且存在阻塞性历史上下文缺口时才使用 `project_context_search`。

@@ -18,6 +18,24 @@ export function containsPrivateContextPath(value: unknown): boolean {
   return false;
 }
 
+export function containsPrivateContextAccess(value: unknown): boolean {
+  return containsPrivateContextAccessAtKey(undefined, value);
+}
+
+function containsPrivateContextAccessAtKey(key: string | undefined, value: unknown): boolean {
+  if (typeof value === "string") return isPathLikeKey(key) && value.includes(DEFAULT_CONTEXT_DIR);
+  if (Array.isArray(value)) return value.some((item) => containsPrivateContextAccessAtKey(key, item));
+  if (value && typeof value === "object") {
+    return Object.entries(value).some(([itemKey, item]) => containsPrivateContextAccessAtKey(itemKey, item));
+  }
+  return false;
+}
+
+function isPathLikeKey(key: string | undefined): boolean {
+  if (!key) return false;
+  return /(^|_|-)(file|path|filepath|filename|directory|workdir|cwd|command)$/i.test(key);
+}
+
 export function redactPrivateContextPaths(text: string): string {
   return text.replace(PRIVATE_CONTEXT_PATTERN, PRIVATE_CONTEXT_REDACTION);
 }

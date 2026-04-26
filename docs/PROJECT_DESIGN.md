@@ -112,7 +112,7 @@ The MVP intentionally uses plain files and zero runtime dependencies:
 - no UI;
 - no automatic full chat capture.
 
-This keeps the tool easy to embed, review, and trust. The intended visible runtime surface is only project_context_search. Initialization is automatic when the scaffold framework is missing; prepare is automatic local I/O; update is automatic hidden-maintainer maintenance after material turns.
+This keeps the tool easy to embed, review, and trust. The intended visible runtime surface is only project_context_search, and it is a high-threshold fallback for blocking historical context gaps. Initialization is automatic when the scaffold framework is missing; prepare is automatic local I/O; update is automatic hidden-maintainer maintenance after material turns.
 
 ## 9. Development roadmap
 
