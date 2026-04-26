@@ -251,6 +251,7 @@ test("OpenCode plugin exposes hidden maintainer and three tools without compacti
           return { id: "maintainer-session" };
         },
         async get(input) {
+          assert.equal(input.query.directory, root);
           return input.path.id === "child-session" ? { id: "child-session", parentID: "parent-session" } : { id: input.path.id };
         },
         async promptAsync(input) {
@@ -303,7 +304,10 @@ test("OpenCode plugin exposes hidden maintainer and three tools without compacti
       abort: new AbortController().signal,
       metadata() {}
     });
-    assert.equal(output, "Maintainer result from [project-context-private]");
+    assert.match(output, /Project Context Prepare completed:/);
+    assert.match(output, /Summary:/);
+    assert.match(output, /Prepared context:/);
+    assert.match(output, /Maintainer result from \[project-context-private\]/);
     const rootSystem = { system: [] };
     await hooks["experimental.chat.system.transform"]({ sessionID: "parent-session", model: {} }, rootSystem);
     assert.equal(rootSystem.system.length, 1);

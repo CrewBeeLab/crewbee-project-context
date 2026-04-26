@@ -26,6 +26,25 @@ function failed(kind: string, reason: string): string {
   return `Project Context ${kind} failed:\n- reason: ${redactPrivateContextPaths(reason)}`;
 }
 
+function preview(text: string, maxLength = 360): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+function prepared(output: string): string {
+  const redacted = redactPrivateContextPaths(output).trim();
+  return [
+    "Project Context Prepare completed:",
+    "",
+    "Summary:",
+    `- ${preview(redacted)}`,
+    "",
+    "Prepared context:",
+    redacted
+  ].join("\n");
+}
+
 function finalized(): string {
   return [
     "Project Context finalized:",
@@ -60,8 +79,9 @@ export function createProjectContextTools(input: { client: OpenCodeClientLike; s
           ...(args.task_type ? { taskType: args.task_type } : {}),
           ...(args.budget ? { budget: args.budget } : {})
         }, { abort: ctx.abort });
-        ctx.metadata({ title: "Project Context Prepare", metadata: { ok: result.ok } });
-        return result.ok ? redactPrivateContextPaths(result.output) : failed("prepare", result.error ?? "maintainer subsession failed");
+        const output = result.ok ? prepared(result.output) : failed("prepare", result.error ?? "maintainer subsession failed");
+        ctx.metadata({ title: "Project Context Prepare", metadata: { ok: result.ok, preview: preview(output, 160) } });
+        return output;
       }
     }),
 

@@ -1,6 +1,7 @@
 import { PROJECT_CONTEXT_MAINTAINER_AGENT_ID } from "./maintainer-prompt.js";
 import { containsPrivateContextPath, isProjectContextMaintainer } from "./visibility.js";
 import type { OpenCodeClientLike } from "./types.js";
+import { writeRuntimeLog } from "./runtime-log.js";
 
 const PROJECT_CONTEXT_TOOL_NAMES = new Set(["project_context_prepare", "project_context_search", "project_context_finalize"]);
 
@@ -24,17 +25,26 @@ function readParentID(session: unknown): string | undefined {
   return undefined;
 }
 
-async function isSubsession(client: OpenCodeClientLike | undefined, sessionID: string): Promise<boolean> {
+async function isSubsession(client: OpenCodeClientLike | undefined, sessionID: string, projectRoot: string | undefined): Promise<boolean> {
   if (!client?.session.get) return false;
-  const session = await client.session.get({ path: { id: sessionID } });
+  const query = projectRoot ? { directory: projectRoot, workspace: projectRoot } : undefined;
+  const session = await client.session.get({ path: { id: sessionID }, ...(query ? { query } : {}) });
   return readParentID(session) !== undefined;
 }
 
-export function createProjectContextToolGuard(options: { client?: OpenCodeClientLike } = {}) {
+export function createProjectContextToolGuard(options: { client?: OpenCodeClientLike; projectRoot?: string } = {}) {
   return async (event: { tool: string; sessionID: string; agent?: string; args?: unknown }, output: { args?: unknown }): Promise<void> => {
+    if (options.projectRoot) await writeRuntimeLog(options.projectRoot, { component: "tool-guard", event: "tool-before", sessionID: event.sessionID, agent: event.agent, tool: event.tool });
     if (isProjectContextTool(event.tool)) {
-      if (isProjectContextMaintainer(event.agent)) throw new Error("Project Context Maintainer must not call project_context_* tools recursively.");
-      if (await isSubsession(options.client, event.sessionID)) throw new Error("Project Context tools are available only to root primary-agent sessions, not subsessions or subagents.");
+      if (isProjectContextMaintainer(event.agent)) {
+        if (options.projectRoot) await writeRuntimeLog(options.projectRoot, { component: "tool-guard", event: "block-maintainer-recursion", sessionID: event.sessionID, agent: event.agent, tool: event.tool });
+        throw new Error("Project Context Maintainer must not call project_context_* tools recursively.");
+      }
+      if (await isSubsession(options.client, event.sessionID, options.projectRoot)) {
+        if (options.projectRoot) await writeRuntimeLog(options.projectRoot, { component: "tool-guard", event: "block-subsession-project-context-tool", sessionID: event.sessionID, agent: event.agent, tool: event.tool });
+        throw new Error("Project Context tools are available only to root primary-agent sessions, not subsessions or subagents.");
+      }
+      if (options.projectRoot) await writeRuntimeLog(options.projectRoot, { component: "tool-guard", event: "allow-project-context-tool", sessionID: event.sessionID, agent: event.agent, tool: event.tool });
     }
     if (isProjectContextMaintainer(event.agent)) return;
     if (containsPrivateContextPath(event.args) || containsPrivateContextPath(output.args)) {

@@ -2,6 +2,7 @@ import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { PROJECT_CONTEXT_MAINTAINER_AGENT_ID } from "./maintainer-prompt.js";
 import type { OpenCodeClientLike } from "./types.js";
+import { writeRuntimeLog } from "./runtime-log.js";
 
 export type MaintainerJobKind = "prepare" | "search" | "finalize";
 
@@ -118,6 +119,20 @@ async function writeRunLog(projectRoot: string, event: MaintainerRunLogEvent): P
   } catch (logError) {
     void logError; // Logging must never block or fail the user-facing tool call.
   }
+  await writeRuntimeLog(projectRoot, {
+    component: "maintainer-runner",
+    event: event.event,
+    runId: event.runId,
+    sessionID: event.sessionID,
+    agent: event.callerAgent,
+    elapsedMs: event.elapsedMs,
+    error: event.error,
+    details: {
+      jobKind: event.jobKind,
+      statusType: event.statusType,
+      messageCount: event.messageCount
+    }
+  });
 }
 
 function messageCount(messages: unknown): number {

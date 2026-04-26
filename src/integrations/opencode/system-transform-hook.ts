@@ -1,5 +1,6 @@
 import { ProjectContextService } from "../../service/project-context-service.js";
 import type { OpenCodeClientLike } from "./types.js";
+import { writeRuntimeLog } from "./runtime-log.js";
 
 const RUNTIME_RULE = [
   "Project Context is available through crewbee-project-context.",
@@ -17,16 +18,32 @@ function readParentID(session: unknown): string | undefined {
   return undefined;
 }
 
-async function shouldInjectProjectContext(input: { sessionID?: string }, client: OpenCodeClientLike): Promise<boolean> {
-  if (!input.sessionID || !client.session.get) return false;
-  const session = await client.session.get({ path: { id: input.sessionID } });
-  return readParentID(session) === undefined;
+async function shouldInjectProjectContext(input: { sessionID?: string }, client: OpenCodeClientLike, projectRoot: string): Promise<boolean> {
+  if (!input.sessionID) {
+    await writeRuntimeLog(projectRoot, { component: "system-transform", event: "skip-no-session" });
+    return false;
+  }
+  if (!client.session.get) {
+    await writeRuntimeLog(projectRoot, { component: "system-transform", event: "skip-no-session-get", sessionID: input.sessionID });
+    return false;
+  }
+  try {
+    await writeRuntimeLog(projectRoot, { component: "system-transform", event: "session-get-start", sessionID: input.sessionID });
+    const session = await client.session.get({ path: { id: input.sessionID }, query: { directory: projectRoot, workspace: projectRoot } });
+    const parentID = readParentID(session);
+    await writeRuntimeLog(projectRoot, { component: "system-transform", event: parentID === undefined ? "root-session" : "skip-subsession", sessionID: input.sessionID, details: parentID === undefined ? undefined : { parentID } });
+    return parentID === undefined;
+  } catch (error) {
+    await writeRuntimeLog(projectRoot, { component: "system-transform", event: "session-get-failed", sessionID: input.sessionID, error: error instanceof Error ? error.message : String(error) });
+    return false;
+  }
 }
 
-export function createProjectContextSystemTransformHook(input: { service: ProjectContextService; client: OpenCodeClientLike }) {
+export function createProjectContextSystemTransformHook(input: { service: ProjectContextService; client: OpenCodeClientLike; projectRoot: string }) {
   return async (hookInput: { sessionID?: string; model: unknown }, output: { system: string[] }): Promise<void> => {
-    if (!(await shouldInjectProjectContext(hookInput, input.client))) return;
+    if (!(await shouldInjectProjectContext(hookInput, input.client, input.projectRoot))) return;
     const fragment = await input.service.detect().then((detection) => detection.found ? input.service.buildPrimer({ budgetTokens: 700, memoryLimit: 3 }) : null);
     output.system.push(fragment ? `${RUNTIME_RULE}\n\n${fragment.text}` : RUNTIME_RULE);
+    await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "injected", sessionID: hookInput.sessionID, details: { hasPrimer: fragment !== null } });
   };
 }

@@ -11,8 +11,8 @@ export async function server(ctx: OpenCodePluginInputLike) {
   return {
     config: createProjectContextConfigHook(),
     tool: createProjectContextTools({ client: ctx.client, service }),
-    "experimental.chat.system.transform": createProjectContextSystemTransformHook({ service, client: ctx.client }),
-    "tool.execute.before": createProjectContextToolGuard({ client: ctx.client }),
+    "experimental.chat.system.transform": createProjectContextSystemTransformHook({ service, client: ctx.client, projectRoot: ctx.worktree }),
+    "tool.execute.before": createProjectContextToolGuard({ client: ctx.client, projectRoot: ctx.worktree }),
     "tool.execute.after": createProjectContextToolOutputRedactor()
   };
 }
