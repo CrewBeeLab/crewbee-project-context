@@ -59,7 +59,7 @@ export function createProjectContextTools(input: { client: OpenCodeClientLike; s
           goal: args.goal,
           ...(args.task_type ? { taskType: args.task_type } : {}),
           ...(args.budget ? { budget: args.budget } : {})
-        });
+        }, { abort: ctx.abort });
         ctx.metadata({ title: "Project Context Prepare", metadata: { ok: result.ok } });
         return result.ok ? redactPrivateContextPaths(result.output) : failed("prepare", result.error ?? "maintainer subsession failed");
       }
@@ -80,7 +80,7 @@ export function createProjectContextTools(input: { client: OpenCodeClientLike; s
           projectRoot: ctx.worktree,
           goal: args.goal,
           ...(args.budget ? { budget: args.budget } : {})
-        });
+        }, { abort: ctx.abort });
         ctx.metadata({ title: "Project Context Search", metadata: { ok: result.ok } });
         return result.ok ? redactPrivateContextPaths(result.output) : failed("search", result.error ?? "maintainer subsession failed");
       }
@@ -104,7 +104,7 @@ export function createProjectContextTools(input: { client: OpenCodeClientLike; s
           callerAgent: ctx.agent,
           projectRoot: ctx.worktree,
           payload
-        });
+        }, { abort: ctx.abort });
         if (!result.ok) return failed("finalize", result.error ?? "maintainer subsession failed");
 
         const validation = await input.service.validateContext();

@@ -7,6 +7,7 @@ import * as publicApi from "../dist/src/index.js";
 import { buildCrewBeePromptFragment, executeCrewBeeProjectContextTool, getCrewBeeToolNames, prepareProjectContext } from "../dist/src/index.js";
 import { ProjectContextService } from "../dist/src/service/project-context-service.js";
 import { hasRecommendedPluginOrder, runInstallDoctor, upsertProjectContextPluginEntry } from "../dist/src/install/index.js";
+import { MaintainerSubsessionRunner } from "../dist/src/integrations/opencode/subsession-runner.js";
 
 const service = (root) => new ProjectContextService(root);
 
@@ -249,8 +250,15 @@ test("OpenCode plugin exposes hidden maintainer and three tools without compacti
         async create() {
           return { id: "maintainer-session" };
         },
-        async prompt() {
+        async get(input) {
+          return input.path.id === "child-session" ? { id: "child-session", parentID: "parent-session" } : { id: input.path.id };
+        },
+        async promptAsync(input) {
+          assert.equal(input.body.tools.project_context_prepare, false);
           return {};
+        },
+        async status() {
+          return { "maintainer-session": { type: "idle" } };
         },
         async messages() {
           return [{ role: "assistant", parts: [{ type: "text", text: "Maintainer result from .crewbeectxt/HANDOFF.md" }] }];
@@ -265,14 +273,21 @@ test("OpenCode plugin exposes hidden maintainer and three tools without compacti
       "project_context_search"
     ]);
 
-    const config = { agent: { "coding-leader": { mode: "primary", permission: {} } } };
+    const config = { agent: { "coding-leader": { mode: "primary", permission: {} }, "worker": { mode: "subagent", permission: {} } } };
     await hooks.config(config);
     assert.equal(config.agent["project-context-maintainer"].hidden, true);
     assert.equal(config.agent["project-context-maintainer"].mode, "subagent");
+    assert.equal(config.agent["project-context-maintainer"].permission.project_context_prepare, "deny");
+    assert.equal(config.agent["project-context-maintainer"].permission["session.prompt"], "deny");
+    assert.equal(config.agent["project-context-maintainer"].tools.project_context_prepare, false);
     assert.equal(config.agent["coding-leader"].permission.task["project-context-maintainer"], "deny");
+    assert.equal(config.agent.worker.permission.project_context_prepare, "deny");
+    assert.equal(config.agent.worker.tools.project_context_prepare, false);
     assert.ok(config.watcher.ignore.includes(".crewbeectxt/cache/**"));
 
     await assert.rejects(() => hooks["tool.execute.before"]({ tool: "task", sessionID: "s", callID: "c" }, { args: { subagent_type: "project-context-maintainer" } }), /Do not invoke/);
+    await assert.rejects(() => hooks["tool.execute.before"]({ tool: "project_context_prepare", sessionID: "child-session", callID: "c", agent: "worker" }, { args: { goal: "x" } }), /root primary-agent sessions/);
+    await assert.rejects(() => hooks["tool.execute.before"]({ tool: "project_context_prepare", sessionID: "maintainer-session", callID: "c", agent: "project-context-maintainer" }, { args: { goal: "x" } }), /must not call project_context/);
     await assert.rejects(() => hooks["tool.execute.before"]({ tool: "read", sessionID: "s", callID: "c", agent: "coding-leader" }, { args: { filePath: ".crewbeectxt/HANDOFF.md" } }), /Project Context workspace is private/);
     await assert.rejects(() => hooks["tool.execute.before"]({ tool: "read", sessionID: "s", callID: "c", agent: "coding-leader" }, { args: { ".crewbeectxt/HANDOFF.md": true } }), /Project Context workspace is private/);
     await hooks["tool.execute.before"]({ tool: "read", sessionID: "s", callID: "c", agent: "project-context-maintainer" }, { args: { filePath: ".crewbeectxt/HANDOFF.md" } });
@@ -289,6 +304,12 @@ test("OpenCode plugin exposes hidden maintainer and three tools without compacti
       metadata() {}
     });
     assert.equal(output, "Maintainer result from [project-context-private]");
+    const rootSystem = { system: [] };
+    await hooks["experimental.chat.system.transform"]({ sessionID: "parent-session", model: {} }, rootSystem);
+    assert.equal(rootSystem.system.length, 1);
+    const childSystem = { system: [] };
+    await hooks["experimental.chat.system.transform"]({ sessionID: "child-session", model: {} }, childSystem);
+    assert.equal(childSystem.system.length, 0);
     await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
     const finalizeOutput = await hooks.tool.project_context_finalize.execute({ summary: "Updated project context." }, {
       sessionID: "parent-session",
@@ -313,6 +334,126 @@ test("bundled OpenCode server entrypoint matches package plugin shape", async ()
   assert.equal(typeof rootMod.server, "function");
   assert.equal(typeof mod.default.server, "function");
   assert.equal(typeof mod.server, "function");
+});
+
+test("maintainer subsession runner completes via prompt_async polling", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-runner-"));
+  const calls = [];
+  const client = {
+    session: {
+      async create(input) {
+        calls.push(["create", input.query]);
+        return { id: "maintainer-session" };
+      },
+      async promptAsync(input) {
+        calls.push(["promptAsync", input.path.id, input.query]);
+        assert.equal(input.body.tools.project_context_prepare, false);
+        return undefined;
+      },
+      async status() {
+        calls.push(["status"]);
+        return { "maintainer-session": { type: "idle" } };
+      },
+      async messages() {
+        calls.push(["messages"]);
+        return [{ info: { role: "assistant" }, parts: [{ type: "text", text: "Maintainer completed." }] }];
+      }
+    }
+  };
+  try {
+    const runner = new MaintainerSubsessionRunner(client);
+    const result = await runner.run({
+      kind: "prepare",
+      title: "Project Context Prepare",
+      callerSessionID: "parent-session",
+      callerAgent: "coding-leader",
+      projectRoot: root,
+      goal: "Prepare context."
+    }, { timeoutMs: 1000, pollIntervalMs: 1 });
+
+    assert.equal(result.ok, true);
+    assert.equal(result.output, "Maintainer completed.");
+    assert.ok(calls.some((call) => call[0] === "promptAsync"));
+    const logText = await readFile(path.join(root, ".crewbeectxt", "tmp", "maintainer-runs.jsonl"), "utf8");
+    assert.match(logText, /"event":"start"/);
+    assert.match(logText, /"event":"poll"/);
+    assert.match(logText, /"event":"completed"/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("maintainer subsession runner times out and aborts stuck prompt_async jobs", async () => {
+  let abortCalled = false;
+  const client = {
+    session: {
+      async create() {
+        return { id: "maintainer-session" };
+      },
+      async promptAsync() {
+        return undefined;
+      },
+      async status() {
+        return { "maintainer-session": { type: "busy" } };
+      },
+      async messages() {
+        return [];
+      },
+      async abort(input) {
+        abortCalled = input.path.id === "maintainer-session";
+        return true;
+      }
+    }
+  };
+  const runner = new MaintainerSubsessionRunner(client);
+  const result = await runner.run({
+    kind: "prepare",
+    title: "Project Context Prepare",
+    callerSessionID: "parent-session",
+    callerAgent: "coding-leader",
+    projectRoot: process.cwd(),
+    goal: "Prepare context."
+  }, { timeoutMs: 20, pollIntervalMs: 1 });
+
+  assert.equal(result.ok, false);
+  assert.match(result.error, /did not complete/);
+  assert.equal(abortCalled, true);
+});
+
+test("maintainer subsession runner refuses blocking prompt fallback", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-runner-"));
+  let promptCalled = false;
+  const client = {
+    session: {
+      async create() {
+        return { id: "maintainer-session" };
+      },
+      async prompt() {
+        promptCalled = true;
+        return undefined;
+      },
+      async messages() {
+        return [];
+      }
+    }
+  };
+  try {
+    const runner = new MaintainerSubsessionRunner(client);
+    const result = await runner.run({
+      kind: "prepare",
+      title: "Project Context Prepare",
+      callerSessionID: "parent-session",
+      callerAgent: "coding-leader",
+      projectRoot: root,
+      goal: "Prepare context."
+    }, { timeoutMs: 1000, pollIntervalMs: 1 });
+
+    assert.equal(result.ok, false);
+    assert.match(result.error, /promptAsync/);
+    assert.equal(promptCalled, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("install config writer keeps project context after CrewBee", () => {

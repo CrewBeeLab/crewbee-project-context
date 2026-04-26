@@ -25,7 +25,7 @@
     "typecheck": "tsc --noEmit && npm run build && node scripts/check-types.mjs",
     "build": "node scripts/build.mjs",
     "pack:local": "npm run build && node scripts/pack-local.mjs",
-    "install:local:user": "npm run pack:local && node ./bin/crewbee-project-context.js install --source local --local-tarball ./.artifacts/local/crewbee-project-context-local.tgz",
+    "install:local:user": "node scripts/install-local-user.mjs",
     "install:registry:user": "node ./bin/crewbee-project-context.js install --source registry",
     "test": "npm run build && node --test tests/*.test.js",
     "doctor": "node ./bin/crewbee-project-context.js doctor",

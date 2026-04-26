@@ -9,6 +9,7 @@ export interface OpenCodeAgentConfig {
   description?: string;
   prompt?: string;
   permission?: Record<string, PermissionRule | undefined>;
+  tools?: Record<string, boolean>;
   [key: string]: unknown;
 }
 
@@ -29,9 +30,13 @@ export interface OpenCodeToolContextLike {
 
 export interface OpenCodeClientLike {
   session: {
-    create(input: { body: { parentID: string; title: string } }): Promise<unknown>;
-    messages(input: { path: { id: string } }): Promise<unknown>;
-    prompt(input: { path: { id: string }; body: { agent?: string; parts: Array<{ type: "text"; text: string }> } }): Promise<unknown>;
+    create(input: { body: { parentID: string; title: string }; query?: { directory?: string; workspace?: string } }): Promise<unknown>;
+    get?(input: { path: { id: string }; query?: { directory?: string; workspace?: string } }): Promise<unknown>;
+    messages(input: { path: { id: string }; query?: { directory?: string; workspace?: string; limit?: number } }): Promise<unknown>;
+    prompt?(input: { path: { id: string }; body: { agent?: string; tools?: Record<string, boolean>; parts: Array<{ type: "text"; text: string }> }; query?: { directory?: string; workspace?: string } }): Promise<unknown>;
+    promptAsync?(input: { path: { id: string }; body: { agent?: string; tools?: Record<string, boolean>; parts: Array<{ type: "text"; text: string }> }; query?: { directory?: string; workspace?: string } }): Promise<unknown>;
+    status?(input?: { query?: { directory?: string; workspace?: string } }): Promise<unknown>;
+    abort?(input: { path: { id: string }; query?: { directory?: string; workspace?: string } }): Promise<unknown>;
   };
 }
 
