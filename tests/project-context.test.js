@@ -15,11 +15,8 @@ const service = (root) => new ProjectContextService(root);
 test("public package surface stays focused on CrewBee sidecar usage", () => {
   assert.equal("project_context_read" in publicApi, false);
   assert.equal("readContextFile" in publicApi, false);
-  assert.equal("updateContext" in publicApi, false);
   assert.equal("initProjectContext" in publicApi, false);
-  assert.equal("finalizeSession" in publicApi, false);
   assert.equal(typeof publicApi.executeCrewBeeProjectContextTool, "function");
-  assert.equal("requestProjectContextFinalize" in publicApi, false);
 });
 
 test("init creates a valid .crewbeectxt workspace", async () => {
@@ -124,61 +121,6 @@ test("service does not expose direct context file reads", async () => {
   }
 });
 
-test("updateContext merges state and enforces expectedHash", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-"));
-  try {
-    await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
-    await assert.rejects(() => service(root).updateContext({
-      target: "state",
-      operation: "merge",
-      payload: { last_checkpoint: "CP-0002" },
-      expectedHash: "not-a-real-hash"
-    }), /expectedHash/);
-
-    const result = await service(root).updateContext({
-      target: "state",
-      operation: "merge",
-      payload: { last_checkpoint: "CP-0002", next_actions: ["Continue implementation"] }
-    });
-    assert.equal(result.ok, true);
-    const state = await readFile(path.join(root, ".crewbeectxt", "STATE.yaml"), "utf8");
-    assert.match(state, /last_checkpoint: CP-0002/);
-    assert.match(state, /action: Continue implementation/);
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
-test("finalizeSession writes observation and updates handoff/state", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-"));
-  try {
-    await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
-    const result = await service(root).finalizeSession({
-      title: "Finalize Test",
-      summary: "Implemented finalize test flow.",
-      changedFiles: ["src/maintainer/finalize-context.ts"],
-      verification: ["npm test passed"],
-      nextActions: ["Continue S5 hardening"]
-    });
-
-    assert.equal(result.ok, true);
-    assert.equal(result.doctor.ok, true, result.doctor.errors.join("; "));
-    assert.equal(result.checkpointId, "CP-0002");
-    assert.ok(result.changedFiles.includes(".crewbeectxt/observations/CP-0002.md"));
-
-    const observation = await readFile(path.join(root, ".crewbeectxt", "observations", "CP-0002.md"), "utf8");
-    const handoff = await readFile(path.join(root, ".crewbeectxt", "HANDOFF.md"), "utf8");
-    const state = await readFile(path.join(root, ".crewbeectxt", "STATE.yaml"), "utf8");
-    assert.match(observation, /Implemented finalize test flow/);
-    assert.match(handoff, /Continue S5 hardening/);
-    assert.match(state, /last_checkpoint: CP-0002/);
-
-    const validation = await service(root).validateContext();
-    assert.equal(validation.ok, true, validation.errors.join("; "));
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
 
 test("CrewBee bridge stays minimal and disabled when context is absent", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-"));
@@ -203,9 +145,6 @@ test("CrewBee bridge exposes only search as a manual Project Context tool", asyn
 
     const search = await executeCrewBeeProjectContextTool(root, "project_context_search", { goal: "project objective" });
     assert.match(search.text, /Project Context Search Result/);
-    await assert.rejects(() => executeCrewBeeProjectContextTool(root, "project_context_prepare", { goal: "x" }), /Unknown CrewBee Project Context tool/);
-    await assert.rejects(() => executeCrewBeeProjectContextTool(root, "project_context_update", { goal: "x" }), /Unknown CrewBee Project Context tool/);
-    await assert.rejects(() => executeCrewBeeProjectContextTool(root, "project_context_finalize", { summary: "x" }), /Unknown CrewBee Project Context tool/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -226,7 +165,7 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
         },
         async promptAsync(input) {
           promptAsyncCalls += 1;
-          assert.equal(input.body.tools.project_context_prepare, false);
+          assert.equal(input.body.tools.project_context_search, false);
           return {};
         },
         async status() {
@@ -294,8 +233,14 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     assert.doesNotMatch(searchOutput, /.crewbeectxt/);
     assert.equal(promptAsyncCalls, 1);
 
-    await hooks["tool.execute.after"]({ tool: "bash", sessionID: "parent-session", callID: "test", agent: "coding-leader", args: { command: "npm test" } }, { result: "ok" });
+    await hooks["tool.execute.before"]({ tool: "bash", sessionID: "parent-session", callID: "test", agent: "coding-leader" }, { args: { command: "npm test" } });
+    await hooks["tool.execute.after"]({ tool: "bash", sessionID: "parent-session", callID: "test", agent: "coding-leader" }, { result: "ok" });
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(promptAsyncCalls, 2);
+
+    await hooks.event({ event: { type: "message.updated", properties: { sessionID: "maintainer-session", info: { role: "assistant" }, parts: [{ type: "text", text: "决定更新内部上下文。" }] } } });
+    await hooks.event({ event: { type: "session.status", properties: { sessionID: "maintainer-session", status: { type: "idle" } } } });
     await new Promise((resolve) => setTimeout(resolve, 10));
     assert.equal(promptAsyncCalls, 2);
 
@@ -303,10 +248,68 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
     await new Promise((resolve) => setTimeout(resolve, 10));
     assert.equal(promptAsyncCalls, 3);
+
+    await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, { message: { info: { role: "user" } }, parts: [{ type: "text", text: "请更新上下文。" }] });
+    await hooks.event({ event: { type: "session.status", properties: { info: { id: "parent-session" }, status: { type: "idle" } } } });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(promptAsyncCalls, 4);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test("OpenCode plugin auto-initializes missing scaffold on first root session", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-autoinit-"));
+  try {
+    let createCalls = 0;
+    let promptAsyncCalls = 0;
+    const client = {
+      session: {
+        async create(input) {
+          createCalls += 1;
+          assert.equal(input.body.parentID, "parent-session");
+          return { id: "init-maintainer-session" };
+        },
+        async get(input) {
+          return { id: input.path.id };
+        },
+        async promptAsync(input) {
+          promptAsyncCalls += 1;
+          assert.equal(input.path.id, "init-maintainer-session");
+          assert.equal(input.body.agent, "project-context-maintainer");
+          assert.match(input.body.parts[0].text, /Project Context Maintainer job: initialize/);
+          assert.match(input.body.parts[0].text, /Read the project documentation, architecture\/design notes/);
+          return {};
+        },
+        async status() {
+          return { "init-maintainer-session": { type: "idle" } };
+        },
+        async messages() {
+          return [{ info: { role: "assistant" }, parts: [{ type: "text", text: "Initialized project context." }] }];
+        }
+      }
+    };
+
+    const hooks = await publicApi.ProjectContextOpenCodePlugin.server({ client, worktree: root, directory: root });
+    const output = { system: [] };
+    await hooks["experimental.chat.system.transform"]({ sessionID: "parent-session", model: {} }, output);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    assert.equal(output.system.length, 1);
+    assert.match(output.system[0], /Project Context Brief/);
+    assert.equal(createCalls, 1);
+    assert.equal(promptAsyncCalls, 1);
+    const validation = await service(root).validateContext();
+    assert.equal(validation.ok, true, validation.errors.join("; "));
+
+    await hooks.event({ event: { type: "session.status", properties: { sessionID: "init-maintainer-session", status: { type: "idle" } } } });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(promptAsyncCalls, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("bundled OpenCode server entrypoint matches package plugin shape", async () => {
   const rootMod = await import(`../opencode-plugin.mjs?test=${Date.now()}`);
   const mod = await import("../dist/opencode-plugin.mjs");
@@ -329,7 +332,7 @@ test("maintainer subsession runner completes via prompt_async polling", async ()
       },
       async promptAsync(input) {
         calls.push(["promptAsync", input.path.id, input.query]);
-        assert.equal(input.body.tools.project_context_prepare, false);
+        assert.equal(input.body.tools.project_context_search, false);
         return undefined;
       },
       async status() {

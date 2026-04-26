@@ -43,10 +43,10 @@ Before declaring a change complete:
 - `workspace` owns `.crewbeectxt` paths, bootstrap, doctor, and file access.
 - `indexer` owns lightweight scaffold parsing.
 - `capsule` owns Context Capsule and Task Context Brief compression.
-- `maintainer` owns internal search/update execution and safe patching.
+- `maintainer` owns maintainer-driven search support; initialization and update jobs are orchestrated by the OpenCode runtime and executed by the hidden maintainer.
 - `service` owns the object-oriented facade that coordinates modules.
 - `integrations/crewbee` owns optional library bridge compatibility.
-- `integrations/opencode` owns the real OpenCode plugin adapter, hidden maintainer config hook, tools, system transform, and task guard.
+- `integrations/opencode` owns the real OpenCode plugin adapter, hidden maintainer config hook, search tool, first-start scaffold initialization, auto-prepare system transform, auto-update event/chat/tool hooks, output redaction, and task guard.
 - `cli` is internal/debug/CI oriented, not the product user flow.
 
 ## Release notes discipline

@@ -2,7 +2,7 @@ import { DEFAULT_CONTEXT_DIR } from "../../core/constants.js";
 import { buildMaintainerPrompt, PROJECT_CONTEXT_MAINTAINER_AGENT_ID } from "./maintainer-prompt.js";
 import type { OpenCodeAgentConfig, OpenCodeConfigLike, PermissionAction, PermissionRule } from "./types.js";
 
-const PROJECT_CONTEXT_TOOL_NAMES = ["project_context_prepare", "project_context_search", "project_context_update", "project_context_finalize"] as const;
+const PROJECT_CONTEXT_TOOL_NAMES = ["project_context_search"] as const;
 
 function denyProjectContextRuntimeAccess(permission: Record<string, PermissionRule | undefined>): void {
   for (const toolName of PROJECT_CONTEXT_TOOL_NAMES) permission[toolName] = "deny";
@@ -28,7 +28,7 @@ function createMaintainerAgent(): OpenCodeAgentConfig {
   return {
     mode: "subagent",
     hidden: true,
-    description: "Internal project context maintainer. Invoked only by project_context_* tools.",
+    description: "Internal project context maintainer. Invoked only by the Project Context runtime.",
     prompt: buildMaintainerPrompt(),
     permission: {
       read: { "*": "allow", "*.env": "deny", "*.env.*": "deny" },
@@ -39,10 +39,7 @@ function createMaintainerAgent(): OpenCodeAgentConfig {
       webfetch: "deny",
       websearch: "deny",
       task: "deny",
-      project_context_prepare: "deny",
       project_context_search: "deny",
-      project_context_update: "deny",
-      project_context_finalize: "deny",
       session: "deny",
       "session.create": "deny",
       "session.prompt": "deny",

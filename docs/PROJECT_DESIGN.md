@@ -38,17 +38,18 @@ Letting every new session rediscover those facts by reading the whole repository
 
 The repository owns a `.crewbeectxt/` workspace with high-signal project context and provides a minimal OpenCode plugin extension to:
 
-1. prepare task-relevant project context;
-2. search project context through a maintainer-controlled path;
-3. request finalize/maintenance after material changes;
-4. integrate with CrewBee/OpenCode without coupling to CrewBee Core.
+1. initialize a missing scaffold on first project startup;
+2. prepare task-relevant project context automatically;
+3. search project context through a maintainer-controlled path;
+4. maintain context automatically after material changes;
+5. integrate with CrewBee/OpenCode without coupling to CrewBee Core.
 
 ## 4. Two-layer architecture
 
 ```text
 crewbee-project-context
   -> .crewbeectxt workspace convention
-  -> OpenCode plugin / hidden maintainer subagent / auto prepare / optional search / auto update
+  -> OpenCode plugin / hidden maintainer subagent / auto init / auto prepare / optional search / auto update
 
 CrewBee
   -> Team-first agent framework
@@ -94,7 +95,7 @@ src/core/          shared constants, budgets, errors, types
 src/workspace/     .crewbeectxt paths, bootstrap, doctor, filesystem access
 src/indexer/       extraction from project context files
 src/capsule/       low-token Context Capsule and Task Context Brief generation
-src/maintainer/    search/update execution and safe patching
+src/maintainer/    maintainer-driven context search support
 src/integrations/  CrewBee bridge and OpenCode plugin adapter, prompt fragments, tools, hidden maintainer metadata
 src/cli/           internal debug/doctor CLI
 templates/crewbeectxt-template/ scaffold source documents copied into target .crewbeectxt/ workspaces
@@ -111,7 +112,7 @@ The MVP intentionally uses plain files and zero runtime dependencies:
 - no UI;
 - no automatic full chat capture.
 
-This keeps the tool easy to embed, review, and trust. The intended visible runtime surface is only project_context_search. Prepare is automatic local I/O; update is automatic hidden-maintainer maintenance after material turns.
+This keeps the tool easy to embed, review, and trust. The intended visible runtime surface is only project_context_search. Initialization is automatic when the scaffold framework is missing; prepare is automatic local I/O; update is automatic hidden-maintainer maintenance after material turns.
 
 ## 9. Development roadmap
 
@@ -138,17 +139,18 @@ Development is step-based, not calendar-based.
 - Safe internal `.crewbeectxt/` reads.
 - Maintainer-controlled local text search over context files.
 
-### S5: Update/Finalize MVP
+### S5: Auto update MVP
 
-- Safe state/handoff/memory updates.
-- Session observation writer.
+- Hidden maintainer update jobs after material turns.
+- Runtime-managed session observations and handoff maintenance inside the private workspace.
 
 ### S6: Minimal CrewBee/OpenCode integration
 
+- Automatic first-start scaffold creation when required framework files are missing.
+- Hidden maintainer initialization job that reads docs, architecture/design notes, tests, package metadata, and main source implementation.
 - Automatic prompt-time context prepare.
 - Single visible `project_context_search` tool bridge.
 - Automatic post-turn context update.
-- No behavior change when `.crewbeectxt/` is absent.
 - No CrewBee Core contract changes.
 
 ## 10. Completion criteria

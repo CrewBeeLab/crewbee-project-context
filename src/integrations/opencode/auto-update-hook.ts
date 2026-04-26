@@ -5,8 +5,15 @@ import type { OpenCodeClientLike } from "./types.js";
 
 interface SessionUpdateState {
   inFlight: boolean;
+  pendingAfterFlight: boolean;
+  lastMessageSignature?: string;
   materialReasons: Set<string>;
   toolEvents: string[];
+}
+
+interface PendingToolCall {
+  tool: string;
+  args?: unknown;
 }
 
 function readEventType(event: unknown): string | undefined {
@@ -24,7 +31,19 @@ function readSessionID(event: unknown): string | undefined {
   const info = (properties as Record<string, unknown>).info;
   if (typeof info !== "object" || info === null || Array.isArray(info)) return undefined;
   const nested = (info as Record<string, unknown>).sessionID;
-  return typeof nested === "string" ? nested : undefined;
+  if (typeof nested === "string") return nested;
+  const id = (info as Record<string, unknown>).id;
+  return typeof id === "string" ? id : undefined;
+}
+
+function readStatusType(event: unknown): string | undefined {
+  if (typeof event !== "object" || event === null || Array.isArray(event)) return undefined;
+  const properties = (event as Record<string, unknown>).properties;
+  if (typeof properties !== "object" || properties === null || Array.isArray(properties)) return undefined;
+  const status = (properties as Record<string, unknown>).status;
+  if (typeof status !== "object" || status === null || Array.isArray(status)) return undefined;
+  const type = (status as Record<string, unknown>).type;
+  return typeof type === "string" ? type : undefined;
 }
 
 function readRole(value: unknown): string | undefined {
@@ -52,6 +71,15 @@ function collectText(value: unknown, output: string[]): void {
     if (typeof record[key] === "string") output.push(record[key]);
   }
   for (const key of ["parts", "message", "data", "properties", "info"]) collectText(record[key], output);
+}
+
+function asArray(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value !== "object" || value === null) return [];
+  const record = value as Record<string, unknown>;
+  if (Array.isArray(record.data)) return record.data;
+  if (Array.isArray(record.messages)) return record.messages;
+  return [];
 }
 
 function readEventText(event: unknown): string {
@@ -90,26 +118,57 @@ function materialReason(toolName: string, args: unknown): string | null {
   return null;
 }
 
+function toolCallKey(sessionID: string, callID: string): string {
+  return `${sessionID}:${callID}`;
+}
+
 export class AutoUpdateManager {
   private readonly states = new Map<string, SessionUpdateState>();
+  private readonly pendingToolCalls = new Map<string, PendingToolCall>();
+  private readonly maintainerSessions = new Set<string>();
   private readonly runner: MaintainerSubsessionRunner;
 
   public constructor(private readonly input: { client: OpenCodeClientLike; service: ProjectContextService; projectRoot: string }) {
     this.runner = new MaintainerSubsessionRunner(input.client);
   }
 
-  public recordTool(input: { tool: string; sessionID: string; args?: unknown }): void {
-    const reason = materialReason(input.tool, input.args);
+  public ignoreSession(sessionID: string): void {
+    this.maintainerSessions.add(sessionID);
+  }
+
+  public recordToolBefore(input: { tool: string; sessionID: string; callID: string }, output: { args?: unknown }): void {
+    if (this.maintainerSessions.has(input.sessionID)) return;
+    this.pendingToolCalls.set(toolCallKey(input.sessionID, input.callID), { tool: input.tool, args: output.args });
+  }
+
+  public recordToolAfter(input: { tool: string; sessionID: string; callID: string; args?: unknown }): void {
+    if (this.maintainerSessions.has(input.sessionID)) return;
+    const key = toolCallKey(input.sessionID, input.callID);
+    const pending = this.pendingToolCalls.get(key);
+    this.pendingToolCalls.delete(key);
+    const args = pending?.args ?? input.args;
+    const toolName = pending?.tool ?? input.tool;
+    const reason = materialReason(toolName, args);
     if (!reason) return;
     const state = this.state(input.sessionID);
     state.materialReasons.add(reason);
-    state.toolEvents.push(`${input.tool}:${reason}`);
+    state.toolEvents.push(`${toolName}:${reason}`);
+  }
+
+  public recordChatMessage(input: { sessionID?: string }, output: { message?: unknown; parts?: unknown[] }): void {
+    const sessionID = input.sessionID;
+    if (!sessionID || this.maintainerSessions.has(sessionID)) return;
+    const text = readEventText(output);
+    const role = readRole(output) ?? readRole(output.message) ?? "user";
+    const state = this.state(sessionID);
+    for (const reason of textMaterialReasons(role, text)) state.materialReasons.add(reason);
   }
 
   public async handleEvent(input: { event: unknown }): Promise<void> {
     const type = readEventType(input.event);
+    const sessionID = readSessionID(input.event);
+    if (sessionID && this.maintainerSessions.has(sessionID)) return;
     if (type?.startsWith("message.")) {
-      const sessionID = readSessionID(input.event);
       if (!sessionID) return;
       const state = this.state(sessionID);
       for (const reason of textMaterialReasons(readRole(input.event), readEventText(input.event))) {
@@ -117,11 +176,36 @@ export class AutoUpdateManager {
       }
       return;
     }
-    if (type !== "session.idle") return;
-    const sessionID = readSessionID(input.event);
+    if (type !== "session.idle" && !(type === "session.status" && readStatusType(input.event) === "idle")) return;
     if (!sessionID) return;
+    await this.captureLatestSessionMessages(sessionID);
+    await this.drainSession(sessionID);
+  }
+
+  private async captureLatestSessionMessages(sessionID: string): Promise<void> {
+    try {
+      const messages = await this.input.client.session.messages({ path: { id: sessionID }, query: { directory: this.input.projectRoot, workspace: this.input.projectRoot, limit: 8 } });
+      const state = this.state(sessionID);
+      const recent = asArray(messages).slice(-8);
+      const signature = recent.map((message) => `${readRole(message) ?? "unknown"}:${readEventText(message)}`).join("\n---\n");
+      if (signature === state.lastMessageSignature) return;
+      state.lastMessageSignature = signature;
+      for (const message of recent) {
+        const role = readRole(message);
+        if (role !== "assistant" && role !== "user") continue;
+        for (const reason of textMaterialReasons(role, readEventText(message))) state.materialReasons.add(reason);
+      }
+    } catch (error) {
+      await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "message-scan-failed", sessionID, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  private async drainSession(sessionID: string): Promise<void> {
     const state = this.state(sessionID);
-    if (state.inFlight) return;
+    if (state.inFlight) {
+      state.pendingAfterFlight = true;
+      return;
+    }
     if (state.materialReasons.size === 0) {
       await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "skipped", sessionID, details: { reason: "no_material_change" } });
       return;
@@ -133,13 +217,17 @@ export class AutoUpdateManager {
     state.toolEvents = [];
     void this.runUpdate(sessionID, reasons, toolEvents).finally(() => {
       state.inFlight = false;
+      if (state.pendingAfterFlight || state.materialReasons.size > 0) {
+        state.pendingAfterFlight = false;
+        void this.drainSession(sessionID);
+      }
     });
   }
 
   private state(sessionID: string): SessionUpdateState {
     const existing = this.states.get(sessionID);
     if (existing) return existing;
-    const created = { inFlight: false, materialReasons: new Set<string>(), toolEvents: [] };
+    const created = { inFlight: false, pendingAfterFlight: false, materialReasons: new Set<string>(), toolEvents: [] };
     this.states.set(sessionID, created);
     return created;
   }
@@ -154,11 +242,12 @@ export class AutoUpdateManager {
       projectRoot: this.input.projectRoot,
       goal: "Automatically maintain Project Context after a main agent turn.",
       payload: { reasons, tool_events: toolEvents }
-    }, { timeoutMs: 90_000 });
+    }, { timeoutMs: 90_000, onSessionCreated: (createdSessionID) => this.maintainerSessions.add(createdSessionID) });
     if (!result.ok) {
       await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "failed", sessionID, error: result.error });
       return;
     }
+    if (result.sessionID) this.maintainerSessions.add(result.sessionID);
     const validation = await this.input.service.validateContext();
     await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: validation.ok ? "completed" : "invalid", sessionID, details: { errors: validation.errors.length, warnings: validation.warnings.length } });
   }

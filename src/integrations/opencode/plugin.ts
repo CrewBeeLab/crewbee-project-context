@@ -11,14 +11,19 @@ export async function server(ctx: OpenCodePluginInputLike) {
   const service = new ProjectContextService(ctx.worktree);
   const autoUpdate = new AutoUpdateManager({ client: ctx.client, service, projectRoot: ctx.worktree });
   const redactOutput = createProjectContextToolOutputRedactor();
+  const guardTool = createProjectContextToolGuard({ client: ctx.client, projectRoot: ctx.worktree });
   return {
     config: createProjectContextConfigHook(),
     tool: createProjectContextTools({ client: ctx.client, service }),
-    "experimental.chat.system.transform": createProjectContextSystemTransformHook({ service, client: ctx.client, projectRoot: ctx.worktree }),
+    "experimental.chat.system.transform": createProjectContextSystemTransformHook({ service, client: ctx.client, projectRoot: ctx.worktree, onMaintainerSessionCreated: (sessionID) => autoUpdate.ignoreSession(sessionID) }),
     event: (input: { event: unknown }) => autoUpdate.handleEvent(input),
-    "tool.execute.before": createProjectContextToolGuard({ client: ctx.client, projectRoot: ctx.worktree }),
+    "chat.message": (input: { sessionID?: string; agent?: string; model?: unknown }, output: { message?: unknown; parts?: unknown[] }) => autoUpdate.recordChatMessage(input, output),
+    "tool.execute.before": async (input: { tool: string; sessionID: string; callID: string; agent?: string; args?: unknown }, output: { args?: unknown }) => {
+      await guardTool(input, output);
+      autoUpdate.recordToolBefore(input, output);
+    },
     "tool.execute.after": async (input: { tool: string; sessionID: string; callID: string; agent?: string; args?: unknown }, output: { result?: unknown; [key: string]: unknown }) => {
-      autoUpdate.recordTool(input);
+      autoUpdate.recordToolAfter(input);
       await redactOutput(input, output);
     }
   };

@@ -1,8 +1,6 @@
-import type { ContextPatch, ContextSearchResult, ContextUpdateResult, DetectionResult, FinalizeResult, InitOptions, InitResult, PrepareContextRequest, PrimerOptions, ProjectContextBrief, ProjectContextPrimer, ProjectContextSearchRequest, SessionSummary, ValidationResult } from "../core/types.js";
+import type { ContextSearchResult, DetectionResult, InitOptions, InitResult, PrepareContextRequest, PrimerOptions, ProjectContextBrief, ProjectContextPrimer, ProjectContextSearchRequest, ValidationResult } from "../core/types.js";
 import { ContextCapsuleBuilder } from "../capsule/context-capsule.js";
 import { ProjectContextParser } from "../indexer/parser.js";
-import { ContextUpdater } from "../maintainer/apply-patch.js";
-import { SessionFinalizer } from "../maintainer/finalize-context.js";
 import { ContextSearcher } from "../maintainer/search-context.js";
 import { ProjectContextWorkspace } from "../workspace/bootstrap.js";
 import { FileSystemProjectContextStore } from "../workspace/workspace-store.js";
@@ -12,17 +10,13 @@ export class ProjectContextService {
   private readonly workspace: ProjectContextWorkspace;
   private readonly capsule: ContextCapsuleBuilder;
   private readonly searcher: ContextSearcher;
-  private readonly updater: ContextUpdater;
-  private readonly finalizer: SessionFinalizer;
 
   public constructor(root: string = process.cwd()) {
     this.store = new FileSystemProjectContextStore(root);
     const parser = new ProjectContextParser();
-    this.updater = new ContextUpdater(this.store);
     this.workspace = new ProjectContextWorkspace(this.store, parser);
     this.capsule = new ContextCapsuleBuilder(this.store, parser);
     this.searcher = new ContextSearcher(this.store);
-    this.finalizer = new SessionFinalizer(this.store, this.updater, parser);
   }
 
   public detect(): Promise<DetectionResult> {
@@ -76,14 +70,6 @@ export class ProjectContextService {
 
   public searchContext(query: string, options?: { limit?: number }): Promise<ContextSearchResult> {
     return this.searcher.search(query, options);
-  }
-
-  public updateContext(patch: ContextPatch): Promise<ContextUpdateResult> {
-    return this.updater.update(patch);
-  }
-
-  public finalizeSession(summary?: SessionSummary): Promise<FinalizeResult> {
-    return this.finalizer.finalize(summary);
   }
 
   private prepareBudgetTokens(budget: PrepareContextRequest["budget"]): number {

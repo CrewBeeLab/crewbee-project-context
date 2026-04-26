@@ -26,7 +26,7 @@ Default choices:
 
 ```text
 crewbee-project-context
-  = project context layer / document scaffold / auto prepare / optional search / auto update
+  = project context layer / document scaffold / auto init / auto prepare / optional search / auto update
 
 CrewBee
   = Team-first Agent framework / OpenCode adapter / Agent projection / runtime integration
@@ -36,7 +36,8 @@ This repository owns the `.crewbeectxt/` convention and the tools that read, val
 
 ## MVP capabilities
 
-- Detect or lazily bootstrap a `.crewbeectxt/` context workspace.
+- Detect or lazily bootstrap a `.crewbeectxt/` context workspace on first root-session startup.
+- When the scaffold is missing, create it from templates and start a hidden maintainer initialization job to read project docs, architecture/design notes, package metadata, tests, and main source implementation.
 - Automatically inject a low-token Runtime Rule + Context Brief when needed.
 - Expose only `project_context_search` to the main agent.
 - Automatically maintain context after material turns through a hidden OpenCode Context Maintainer subagent.
@@ -64,7 +65,7 @@ In product usage, install `crewbee` and `crewbee-project-context` as sibling Ope
 }
 ```
 
-Project Context detects its private workspace, auto-prepares a compact brief, and registers only the optional search tool. The install CLI targets the OpenCode user-level plugin workspace; scaffold init/read/update is not exposed as the main user workflow.
+Project Context detects its private workspace, auto-creates the scaffold if required files are missing, starts a hidden maintainer initialization job, auto-prepares a compact brief, and registers only the optional search tool. The install CLI targets the OpenCode user-level plugin workspace; scaffold init/read/update is not exposed as the main user workflow.
 
 Useful development-only commands:
 
@@ -108,4 +109,4 @@ During development, scaffold source documents live under `templates/crewbeectxt-
 
 ## Current implementation status
 
-This version uses a TypeScript implementation with a small service core and an OpenCode plugin adapter. It ships a root `opencode-plugin.mjs` package entrypoint, automatic prepare/update runtime actions, one visible Project Context search tool, private smart-path wiring, direct Task guard, and CrewBee-style user-level install / doctor flow. `.crewbeectxt/` is the product context directory.
+This version uses a TypeScript implementation with a small service core and an OpenCode plugin adapter. It ships a root `opencode-plugin.mjs` package entrypoint, automatic scaffold initialization, automatic prepare/update runtime actions, one visible Project Context search tool, private smart-path wiring, direct Task guard, and CrewBee-style user-level install / doctor flow. `.crewbeectxt/` is the product context directory.

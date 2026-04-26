@@ -2,7 +2,7 @@ import { PROJECT_CONTEXT_MAINTAINER_AGENT_ID } from "./maintainer-prompt.js";
 import type { OpenCodeClientLike } from "./types.js";
 import { writeRuntimeLog } from "./runtime-log.js";
 
-export type MaintainerJobKind = "search" | "update";
+export type MaintainerJobKind = "initialize" | "search" | "update";
 
 export interface MaintainerJob {
   kind: MaintainerJobKind;
@@ -26,6 +26,7 @@ export interface MaintainerRunOptions {
   abort?: AbortSignal;
   timeoutMs?: number;
   pollIntervalMs?: number;
+  onSessionCreated?: (sessionID: string) => void;
   fallback?: (reason: string) => MaintainerRunResult;
 }
 
@@ -43,16 +44,14 @@ interface MaintainerRunLogEvent {
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_JOB_TIMEOUT_MS: Record<MaintainerJobKind, number> = {
+  initialize: 180_000,
   search: 45_000,
   update: 90_000
 };
 const DEFAULT_POLL_INTERVAL_MS = 500;
 const API_CALL_TIMEOUT_MS = 15_000;
 const MAINTAINER_DISABLED_TOOLS = {
-  project_context_prepare: false,
-  project_context_search: false,
-  project_context_update: false,
-  project_context_finalize: false
+  project_context_search: false
 } as const;
 
 function maintainerTimeoutMs(kind: MaintainerJobKind): number {
@@ -200,7 +199,9 @@ function renderJob(job: MaintainerJob): string {
       "",
     job.kind === "search"
       ? "Search the project context workspace by goal, reason across relevant context, then return compact findings. Do not expose scaffold file paths."
-      : "Maintain the project context workspace if needed, keep changes limited to the project-context scaffold, then return a compact success or failure summary."
+      : job.kind === "initialize"
+        ? "Initialize the project context workspace. Read the project documentation, architecture/design notes, package metadata, tests, and main source implementation. Then update only the project-context scaffold with a compact project overview, architecture, implementation snapshot, current plan/state, decisions, risks, and handoff. Do not expose scaffold file paths."
+        : "Maintain the project context workspace if needed, keep changes limited to the project-context scaffold, then return a compact success or failure summary."
   ].filter((line): line is string => typeof line === "string").join("\n");
 }
 
@@ -221,6 +222,7 @@ export class MaintainerSubsessionRunner {
       const created = await withTimeout(this.client.session.create({ body: { parentID: job.callerSessionID, title: job.title }, query }), Math.min(API_CALL_TIMEOUT_MS, timeoutMs), "OpenCode maintainer subsession create");
       sessionID = readString(created, "id");
       if (!sessionID) return { ok: false, output: "", error: "OpenCode did not return a maintainer subsession id." };
+      options.onSessionCreated?.(sessionID);
       await writeRunLog(job.projectRoot, { event: "session-created", runId: id, jobKind: job.kind, callerAgent: job.callerAgent, sessionID, elapsedMs: Date.now() - startedAt });
 
       const promptInput = {

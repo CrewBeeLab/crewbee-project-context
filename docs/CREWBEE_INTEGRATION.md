@@ -9,7 +9,7 @@ crewbee
   -> Team / Agent projection, delegation, runtime binding
 
 crewbee-project-context
-  -> .crewbeectxt, auto prepare, optional search, auto update
+  -> private context workspace, auto init, auto prepare, optional search, auto update
 ```
 
 Project Context does not enter CrewBee Core, does not become a visible CrewBee Team member, and does not use CrewBee `delegate_task`.
@@ -37,6 +37,7 @@ project_context_search
 Automatic runtime actions, not visible tools:
 
 ```text
+auto init
 auto prepare
 auto update
 ```
@@ -44,9 +45,6 @@ auto update
 Not visible:
 
 ```text
-project_context_prepare
-project_context_update
-project_context_finalize
 project_context_read
 .crewbeectxt file menu
 project-context-maintainer prompt
@@ -61,12 +59,13 @@ Project Context uses:
 config
 tool
 event
+chat.message
 experimental.chat.system.transform
 tool.execute.before
 tool.execute.after
 ```
 
-It intentionally does not use `experimental.session.compacting`; prepare is handled by system transform and update is handled by session events.
+It intentionally does not use `experimental.session.compacting`; initialization and prepare are handled by system transform, while update is handled by chat/message, tool, and session events.
 
 ## Private workspace visibility
 
@@ -102,23 +101,27 @@ Project Context is prepared automatically when needed.
 Use project_context_search only if the prepared context is missing or insufficient for prior project decisions, plan, risks, or implementation history.
 ```
 
+## Automatic initialization
+
+On the first root-session prompt, `experimental.chat.system.transform` checks whether the private scaffold framework exists. If the context directory or required scaffold files are missing, the plugin creates the template scaffold locally, then starts a hidden maintainer `initialize` job. That job is asked to read project documentation, architecture/design notes, package metadata, tests, and main source implementation, and to initialize the scaffold content. The maintainer job is fire-and-forget and does not block prompt construction. Ordinary content validation errors do not trigger scaffold recreation.
+
 ## Automatic prepare
 
 `experimental.chat.system.transform` injects the runtime rule. On the first root-session prompt, it also runs local deterministic prepare and injects a compact Project Context Brief. Prepare does not call a model, does not create a subsession, and does not expose private workspace paths.
 
 ## Automatic update
 
-The `event` hook listens for `session.idle`. `tool.execute.after` records material signals such as file edits, verification commands, and search usage. On idle, auto update evaluates every turn, skips no-material turns, and starts a hidden maintainer update job only when durable project information likely changed.
+The `event` hook listens for `session.idle` and `session.status` with `status.type === "idle"`. `chat.message` records explicit user context-update intent. `tool.execute.before` captures tool args by `sessionID + callID`; `tool.execute.after` consumes the captured call and records material signals such as file edits, verification commands, and search usage. On idle, auto update scans recent session messages, evaluates every turn, skips no-material turns, and starts a hidden maintainer update job only when durable project information likely changed.
 
 Update results are logged internally and are not injected into the main-agent reply. The next auto prepare reads the updated context.
 
 ## Maintainer execution
 
 ```text
-auto update or project_context_search
+auto init, auto update, or project_context_search
   -> crewbee-project-context plugin creates OpenCode subsession
   -> hidden project-context-maintainer runs with restricted permissions
-  -> maintainer reads/searches/updates .crewbeectxt
+  -> maintainer initializes/searches/updates the private workspace
   -> plugin runs doctor after update jobs
   -> search returns compact findings or update records internal status
 ```

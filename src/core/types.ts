@@ -70,51 +70,6 @@ export interface ContextSearchResult {
   items: ContextSearchItem[];
 }
 
-export type ContextPatchTarget = "state" | "handoff" | "memory" | "decision";
-export type ContextPatchOperation = "replace" | "append" | "merge";
-
-export interface ContextPatch {
-  target: ContextPatchTarget;
-  operation?: ContextPatchOperation;
-  payload: unknown;
-  expectedHash?: string;
-}
-
-export interface ContextUpdateResult {
-  ok: boolean;
-  target: string;
-  file: string;
-  previousHash: string;
-  nextHash: string;
-  changed: boolean;
-}
-
-export interface SessionAction {
-  action: string;
-  owner?: string;
-  source?: string;
-}
-
-export interface SessionSummary {
-  title?: string;
-  summary?: string;
-  changedFiles?: string[];
-  verification?: string[];
-  nextActions?: Array<string | SessionAction>;
-  blockers?: string[];
-  memoryEntries?: Array<Record<string, string>>;
-  decisions?: Array<Record<string, string>>;
-}
-
-export interface FinalizeResult {
-  ok: boolean;
-  checkpointId: string | null;
-  changedFiles: string[];
-  warnings: string[];
-  doctor: ValidationResult;
-  summary?: SessionSummary;
-}
-
 export interface CrewBeePromptFragment {
   enabled: boolean;
   text: string;

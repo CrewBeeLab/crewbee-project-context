@@ -2,6 +2,7 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import { DEFAULT_CONTEXT_DIR, SEARCHABLE_CONTEXT_FILES } from "../../core/constants.js";
 import { ProjectContextService } from "../../service/project-context-service.js";
+import { MaintainerSubsessionRunner } from "./subsession-runner.js";
 import type { OpenCodeClientLike } from "./types.js";
 import { writeRuntimeLog } from "./runtime-log.js";
 
@@ -15,6 +16,15 @@ interface PreparedSessionState {
 }
 
 const preparedSessions = new Map<string, PreparedSessionState>();
+const initializationJobs = new Map<string, Promise<void>>();
+
+function projectName(projectRoot: string): string {
+  return path.basename(projectRoot) || "Project";
+}
+
+function projectId(projectRoot: string): string {
+  return projectName(projectRoot).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "project";
+}
 
 async function contextRevision(projectRoot: string): Promise<string> {
   const entries = await Promise.all(SEARCHABLE_CONTEXT_FILES.map(async (file) => {
@@ -58,9 +68,45 @@ async function shouldInjectProjectContext(input: { sessionID?: string }, client:
   }
 }
 
-export function createProjectContextSystemTransformHook(input: { service: ProjectContextService; client: OpenCodeClientLike; projectRoot: string }) {
+async function ensureProjectContextInitialized(input: { service: ProjectContextService; client: OpenCodeClientLike; projectRoot: string; sessionID?: string; onMaintainerSessionCreated?: (sessionID: string) => void }): Promise<void> {
+  const detection = await input.service.detect();
+  const validation = detection.found ? await input.service.validateContext() : { ok: false, errors: ["missing context workspace"], warnings: [], checked: [] };
+  const missingScaffold = !detection.found || validation.errors.some((error) => error.startsWith("Missing required context file:"));
+  if (!missingScaffold) return;
+  const init = await input.service.initProjectContext({ projectId: projectId(input.projectRoot), projectName: projectName(input.projectRoot) });
+  await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "auto-init-scaffold", sessionID: input.sessionID, details: { created: init.created.length, skipped: init.skipped.length, errors: validation.errors.length } });
+  if (!input.sessionID || initializationJobs.has(input.projectRoot)) return;
+  const runner = new MaintainerSubsessionRunner(input.client);
+  const runOptions = input.onMaintainerSessionCreated
+    ? { timeoutMs: 180_000, onSessionCreated: input.onMaintainerSessionCreated }
+    : { timeoutMs: 180_000 };
+  const job = runner.run({
+    kind: "initialize",
+    title: "Project Context Initialize",
+    callerSessionID: input.sessionID,
+    callerAgent: "project-context-runtime",
+    projectRoot: input.projectRoot,
+    goal: "Initialize Project Context for this project on first startup by reading docs, architecture/design notes, package metadata, tests, and main source implementation.",
+    payload: { scaffold_created: init.created, scaffold_skipped: init.skipped }
+  }, runOptions).then(async (result) => {
+    await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: result.ok ? "auto-init-maintainer-completed" : "auto-init-maintainer-failed", sessionID: input.sessionID, error: result.ok ? undefined : result.error });
+  }).finally(() => {
+    initializationJobs.delete(input.projectRoot);
+  });
+  initializationJobs.set(input.projectRoot, job);
+  void job;
+}
+
+export function createProjectContextSystemTransformHook(input: { service: ProjectContextService; client: OpenCodeClientLike; projectRoot: string; onMaintainerSessionCreated?: (sessionID: string) => void }) {
   return async (hookInput: { sessionID?: string; model: unknown }, output: { system: string[] }): Promise<void> => {
     if (!(await shouldInjectProjectContext(hookInput, input.client, input.projectRoot))) return;
+    await ensureProjectContextInitialized({
+      service: input.service,
+      client: input.client,
+      projectRoot: input.projectRoot,
+      ...(hookInput.sessionID ? { sessionID: hookInput.sessionID } : {}),
+      ...(input.onMaintainerSessionCreated ? { onMaintainerSessionCreated: input.onMaintainerSessionCreated } : {})
+    });
     const sessionID = hookInput.sessionID;
     const revision = await contextRevision(input.projectRoot);
     const previous = sessionID === undefined ? undefined : preparedSessions.get(sessionID);
