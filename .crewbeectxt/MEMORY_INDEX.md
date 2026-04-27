@@ -71,3 +71,9 @@
   Summary: The private Project Context workspace must be invisible to the main Agent through prompt/capsule text, tool args, and non-maintainer tool outputs; access goes through prepare/search/finalize.
   Affects: OpenCode hooks, capsule, tool guard, output redaction
   References: `.crewbeectxt/observations/CP-0014.md`
+
+- ID: M-0013
+  Type: decision
+  Summary: Automatic prepare remains system-transform-only; automatic update uses OpenCode's official subtask/Task flow to render a clickable maintainer child-session execution card.
+  Affects: OpenCode hooks, Desktop UI observability, maintainer child sessions
+  References: `.crewbeectxt/observations/CP-0015.md`

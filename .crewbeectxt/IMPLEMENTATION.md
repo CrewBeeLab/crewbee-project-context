@@ -27,6 +27,8 @@
 - OpenCode finalize tool returns path-free status text instead of internal scaffold file names.
 - Config hook appends watcher ignores for private cache/tmp/lock files.
 - Install doctor validates private path guard and output redactor hooks.
+- Automatic prepare stays on the fast local-I/O `experimental.chat.system.transform` path and does not write `noReply` messages into the parent session.
+- Automatic update now uses the official OpenCode subtask/Task flow: the plugin submits a `subtask` part to the parent session via `promptAsync`, OpenCode creates a clickable `task` execution card, and that card links to the Maintainer child session through `metadata.sessionId`.
 
 ## Important Paths
 

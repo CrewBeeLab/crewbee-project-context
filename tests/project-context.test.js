@@ -154,6 +154,8 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
   const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-"));
   try {
     let promptAsyncCalls = 0;
+    const promptAsyncInputs = [];
+    let promptCalls = 0;
     const client = {
       session: {
         async create() {
@@ -161,11 +163,16 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
         },
         async get(input) {
           assert.equal(input.query.directory, root);
-          return input.path.id === "child-session" ? { id: "child-session", parentID: "parent-session" } : { id: input.path.id };
+          return input.path.id === "child-session" || input.path.id === "maintainer-session" ? { id: input.path.id, parentID: "parent-session" } : { id: input.path.id };
         },
         async promptAsync(input) {
           promptAsyncCalls += 1;
-          assert.equal(input.body.tools.project_context_search, false);
+          promptAsyncInputs.push(input);
+          if (input.body.tools) assert.equal(input.body.tools.project_context_search, false);
+          return {};
+        },
+        async prompt(input) {
+          promptCalls += 1;
           return {};
         },
         async status() {
@@ -193,6 +200,7 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     assert.ok(config.watcher.ignore.includes(".crewbeectxt/cache/**"));
 
     await assert.rejects(() => hooks["tool.execute.before"]({ tool: "task", sessionID: "s", callID: "c" }, { args: { subagent_type: "project-context-maintainer" } }), /Do not invoke/);
+    await hooks["tool.execute.before"]({ tool: "task", sessionID: "s", callID: "internal-update" }, { args: { subagent_type: "project-context-maintainer", command: "project_context_update" } });
     await assert.rejects(() => hooks["tool.execute.before"]({ tool: "project_context_search", sessionID: "child-session", callID: "c", agent: "worker" }, { args: { goal: "x" } }), /root primary-agent sessions/);
     await assert.rejects(() => hooks["tool.execute.before"]({ tool: "project_context_search", sessionID: "maintainer-session", callID: "c", agent: "project-context-maintainer" }, { args: { goal: "x" } }), /must not call project_context/);
     await assert.rejects(() => hooks["tool.execute.before"]({ tool: "read", sessionID: "s", callID: "c", agent: "coding-leader" }, { args: { filePath: ".crewbeectxt/HANDOFF.md" } }), /Project Context workspace is private/);
@@ -206,10 +214,12 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
     const rootSystem = { system: [] };
     await hooks["experimental.chat.system.transform"]({ sessionID: "parent-session", model: {} }, rootSystem);
+    await new Promise((resolve) => setTimeout(resolve, 10));
     assert.equal(rootSystem.system.length, 1);
     assert.match(rootSystem.system[0], /Project Context is prepared automatically/);
     assert.match(rootSystem.system[0], /Project Context Brief/);
     assert.doesNotMatch(rootSystem.system[0], /.crewbeectxt|STATE\.yaml|HANDOFF\.md|PLAN\.yaml|observations/);
+    assert.equal(promptCalls, 0);
     const followupSystem = { system: [] };
     await hooks["experimental.chat.system.transform"]({ sessionID: "parent-session", model: {} }, followupSystem);
     assert.equal(followupSystem.system.length, 1);
@@ -240,6 +250,11 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
     await new Promise((resolve) => setTimeout(resolve, 10));
     assert.equal(promptAsyncCalls, 2);
+    const updateInput = promptAsyncInputs.find((input) => input.path.id === "parent-session" && input.body.parts?.[0]?.type === "subtask");
+    assert.ok(updateInput);
+    assert.equal(updateInput.body.parts[0].agent, "project-context-maintainer");
+    assert.equal(updateInput.body.parts[0].description, "Project Context Update");
+    assert.equal(updateInput.body.parts[0].command, "project_context_update");
 
     await hooks.event({ event: { type: "message.updated", properties: { sessionID: "maintainer-session", info: { role: "assistant" }, parts: [{ type: "text", text: "决定更新内部上下文。" }] } } });
     await hooks.event({ event: { type: "session.status", properties: { sessionID: "maintainer-session", status: { type: "idle" } } } });

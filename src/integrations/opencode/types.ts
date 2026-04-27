@@ -28,13 +28,17 @@ export interface OpenCodeToolContextLike {
   metadata(input: { title?: string; metadata?: Record<string, unknown> }): void;
 }
 
+export type OpenCodePromptPartLike =
+  | { type: "text"; text: string }
+  | { type: "subtask"; prompt: string; description: string; agent: string; command?: string };
+
 export interface OpenCodeClientLike {
   session: {
     create(input: { body: { parentID: string; title: string }; query?: { directory?: string; workspace?: string } }): Promise<unknown>;
     get?(input: { path: { id: string }; query?: { directory?: string; workspace?: string } }): Promise<unknown>;
     messages(input: { path: { id: string }; query?: { directory?: string; workspace?: string; limit?: number } }): Promise<unknown>;
-    prompt?(input: { path: { id: string }; body: { agent?: string; tools?: Record<string, boolean>; parts: Array<{ type: "text"; text: string }> }; query?: { directory?: string; workspace?: string } }): Promise<unknown>;
-    promptAsync?(input: { path: { id: string }; body: { agent?: string; tools?: Record<string, boolean>; parts: Array<{ type: "text"; text: string }> }; query?: { directory?: string; workspace?: string } }): Promise<unknown>;
+    prompt?(input: { path: { id: string }; body: { agent?: string; tools?: Record<string, boolean>; noReply?: boolean; parts: OpenCodePromptPartLike[] }; query?: { directory?: string; workspace?: string } }): Promise<unknown>;
+    promptAsync?(input: { path: { id: string }; body: { agent?: string; tools?: Record<string, boolean>; noReply?: boolean; parts: OpenCodePromptPartLike[] }; query?: { directory?: string; workspace?: string } }): Promise<unknown>;
     status?(input?: { query?: { directory?: string; workspace?: string } }): Promise<unknown>;
     abort?(input: { path: { id: string }; query?: { directory?: string; workspace?: string } }): Promise<unknown>;
   };

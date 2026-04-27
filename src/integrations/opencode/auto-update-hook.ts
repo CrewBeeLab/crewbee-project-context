@@ -1,6 +1,6 @@
 import { ProjectContextService } from "../../service/project-context-service.js";
+import { PROJECT_CONTEXT_MAINTAINER_AGENT_ID } from "./maintainer-prompt.js";
 import { writeRuntimeLog } from "./runtime-log.js";
-import { MaintainerSubsessionRunner } from "./subsession-runner.js";
 import type { OpenCodeClientLike } from "./types.js";
 
 interface SessionUpdateState {
@@ -44,6 +44,15 @@ function readStatusType(event: unknown): string | undefined {
   if (typeof status !== "object" || status === null || Array.isArray(status)) return undefined;
   const type = (status as Record<string, unknown>).type;
   return typeof type === "string" ? type : undefined;
+}
+
+function readParentID(session: unknown): string | undefined {
+  if (typeof session !== "object" || session === null || Array.isArray(session)) return undefined;
+  const record = session as Record<string, unknown>;
+  if (typeof record.parentID === "string") return record.parentID;
+  const data = record.data;
+  if (typeof data === "object" && data !== null && !Array.isArray(data)) return readParentID(data);
+  return undefined;
 }
 
 function readRole(value: unknown): string | undefined {
@@ -126,11 +135,8 @@ export class AutoUpdateManager {
   private readonly states = new Map<string, SessionUpdateState>();
   private readonly pendingToolCalls = new Map<string, PendingToolCall>();
   private readonly maintainerSessions = new Set<string>();
-  private readonly runner: MaintainerSubsessionRunner;
 
-  public constructor(private readonly input: { client: OpenCodeClientLike; service: ProjectContextService; projectRoot: string }) {
-    this.runner = new MaintainerSubsessionRunner(input.client);
-  }
+  public constructor(private readonly input: { client: OpenCodeClientLike; service: ProjectContextService; projectRoot: string }) {}
 
   public ignoreSession(sessionID: string): void {
     this.maintainerSessions.add(sessionID);
@@ -168,6 +174,7 @@ export class AutoUpdateManager {
     const type = readEventType(input.event);
     const sessionID = readSessionID(input.event);
     if (sessionID && this.maintainerSessions.has(sessionID)) return;
+    if (sessionID && await this.isSubsession(sessionID)) return;
     if (type?.startsWith("message.")) {
       if (!sessionID) return;
       const state = this.state(sessionID);
@@ -180,6 +187,16 @@ export class AutoUpdateManager {
     if (!sessionID) return;
     await this.captureLatestSessionMessages(sessionID);
     await this.drainSession(sessionID);
+  }
+
+  private async isSubsession(sessionID: string): Promise<boolean> {
+    if (!this.input.client.session.get) return false;
+    try {
+      const session = await this.input.client.session.get({ path: { id: sessionID }, query: { directory: this.input.projectRoot, workspace: this.input.projectRoot } });
+      return readParentID(session) !== undefined;
+    } catch {
+      return false;
+    }
   }
 
   private async captureLatestSessionMessages(sessionID: string): Promise<void> {
@@ -234,21 +251,32 @@ export class AutoUpdateManager {
 
   private async runUpdate(sessionID: string, reasons: string[], toolEvents: string[]): Promise<void> {
     await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "start", sessionID, details: { reasons: reasons.join(",") } });
-    const result = await this.runner.run({
-      kind: "update",
-      title: "Project Context Update",
-      callerSessionID: sessionID,
-      callerAgent: "project-context-runtime",
-      projectRoot: this.input.projectRoot,
-      goal: "Automatically maintain Project Context after a main agent turn.",
-      payload: { reasons, tool_events: toolEvents }
-    }, { timeoutMs: 90_000, onSessionCreated: (createdSessionID) => this.maintainerSessions.add(createdSessionID) });
-    if (!result.ok) {
-      await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "failed", sessionID, error: result.error });
+    if (!this.input.client.session.promptAsync) {
+      await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "failed", sessionID, error: "OpenCode client does not expose session.promptAsync for visible update task." });
       return;
     }
-    if (result.sessionID) this.maintainerSessions.add(result.sessionID);
-    const validation = await this.input.service.validateContext();
-    await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: validation.ok ? "completed" : "invalid", sessionID, details: { errors: validation.errors.length, warnings: validation.warnings.length } });
+
+    await this.input.client.session.promptAsync({
+      path: { id: sessionID },
+      body: {
+        parts: [{
+          type: "subtask",
+          agent: PROJECT_CONTEXT_MAINTAINER_AGENT_ID,
+          description: "Project Context Update",
+          command: "project_context_update",
+          prompt: [
+            "Automatically maintain Project Context after a main agent turn.",
+            "",
+            "Material change reasons:",
+            ...reasons.map((reason) => `- ${reason}`),
+            "",
+            "Tool events:",
+            ...(toolEvents.length > 0 ? toolEvents.map((event) => `- ${event}`) : ["- none recorded"])
+          ].join("\n")
+        }]
+      },
+      query: { directory: this.input.projectRoot, workspace: this.input.projectRoot }
+    });
+    await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "visible-task-launched", sessionID, details: { reasons: reasons.join(",") } });
   }
 }

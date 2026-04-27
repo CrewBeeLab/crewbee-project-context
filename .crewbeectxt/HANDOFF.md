@@ -9,7 +9,7 @@
 
 ## What Changed This Session
 
-Implemented the private workspace visibility supplement: main-agent system/capsule text and capsule metadata no longer expose the workspace path, non-maintainer direct tool args containing private workspace paths are blocked, non-maintainer tool outputs are redacted, finalize tool output is path-free, watcher ignores private cache/tmp/lock noise, install doctor validates guard/redactor hooks, and tests cover these boundaries.
+Adjusted OpenCode Desktop observability to match official OpenCode semantics: automatic prepare remains system-transform-only and does not write no-reply messages, while automatic update now launches the Maintainer through the official subtask/Task path so the parent session gets a clickable task execution card linked to the child session. The private workspace path remains redacted from main-agent-facing text and non-maintainer outputs.
 
 ## Open Blockers
 
@@ -23,9 +23,10 @@ Implemented the private workspace visibility supplement: main-agent system/capsu
 
 ## Exact Next Actions
 
-1. Run an end-to-end OpenCode startup smoke test with plugin config [crewbee, crewbee-project-context].
-2. Validate maintainer subsession behavior against a live OpenCode runtime.
-3. Resume v0.1.0 GitHub release after committing the private workspace visibility changes; note that `gh` CLI is unavailable in this environment.
+1. Run an end-to-end OpenCode Desktop startup smoke test with plugin config [crewbee, crewbee-project-context].
+2. Validate that prepare context is present in the LLM system context without creating a no-reply parent-session message.
+3. Validate that `project_context_update` appears as a clickable Task-style execution card and opens the Maintainer child session.
+4. Resume v0.1.0 GitHub release after committing the Desktop update observability changes; note that `gh` CLI is unavailable in this environment.
 
 ## References
 

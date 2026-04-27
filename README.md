@@ -40,7 +40,7 @@ This repository owns the `.crewbeectxt/` convention and the tools that read, val
 - When the scaffold is missing, create it from templates and start a hidden maintainer initialization job to read project docs, architecture/design notes, package metadata, tests, and main source implementation.
 - Automatically inject a low-token Runtime Rule + Context Brief when needed.
 - Expose only `project_context_search` to the main agent, with a high threshold: rare fallback for blocking historical context gaps only.
-- Automatically maintain context after material turns through a hidden OpenCode Context Maintainer subagent.
+- Automatically maintain context after material turns through the official OpenCode subtask/Task flow, so Desktop users get a clickable task execution card that opens the Maintainer child session.
 - Avoid exposing scaffold file structure through `project_context_read`.
 - Keep the private context workspace out of main-agent prompt/capsule metadata, direct tool args, and non-maintainer tool outputs.
 - Integrate as an OpenCode plugin and do not use `experimental.session.compacting`.
@@ -109,4 +109,4 @@ During development, scaffold source documents live under `templates/crewbeectxt-
 
 ## Current implementation status
 
-This version uses a TypeScript implementation with a small service core and an OpenCode plugin adapter. It ships a root `opencode-plugin.mjs` package entrypoint, automatic scaffold initialization, automatic prepare/update runtime actions, one visible Project Context search tool, private smart-path wiring, direct Task guard, and CrewBee-style user-level install / doctor flow. `.crewbeectxt/` is the product context directory.
+This version uses a TypeScript implementation with a small service core and an OpenCode plugin adapter. It ships a root `opencode-plugin.mjs` package entrypoint, automatic scaffold initialization, automatic prepare/update runtime actions, Task-style visible maintainer update execution, one visible Project Context search tool, private smart-path wiring, direct Task guard, and CrewBee-style user-level install / doctor flow. `.crewbeectxt/` is the product context directory.

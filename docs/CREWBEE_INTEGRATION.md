@@ -67,6 +67,8 @@ tool.execute.after
 
 It intentionally does not use `experimental.session.compacting`; initialization and prepare are handled by system transform, while update is handled by chat/message, tool, and session events.
 
+`experimental.chat.system.transform` is only a model-context hook and does not by itself create a visible Desktop session message. Project Context intentionally keeps prepare on this fast local-I/O path and does not publish prepare as a no-reply session message.
+
 ## Private workspace visibility
 
 The project context workspace is private to the plugin runtime and hidden maintainer. It is not exposed to the main CrewBee/OpenCode agent through prompt text, capsule metadata, tool schemas, direct tool arguments, or non-maintainer tool outputs.
@@ -107,13 +109,13 @@ On the first root-session prompt, `experimental.chat.system.transform` checks wh
 
 ## Automatic prepare
 
-`experimental.chat.system.transform` injects the runtime rule. On the first root-session prompt, it also runs local deterministic prepare and injects a compact Project Context Brief. Prepare does not call a model, does not create a subsession, and does not expose private workspace paths.
+`experimental.chat.system.transform` injects the runtime rule. On the first root-session prompt, it also runs local deterministic prepare and injects a compact Project Context Brief. Prepare does not call a model, does not create a subsession, does not write a no-reply message, and does not expose private workspace paths.
 
 ## Automatic update
 
 The `event` hook listens for `session.idle` and `session.status` with `status.type === "idle"`. `chat.message` records explicit user context-update intent. `tool.execute.before` captures tool args by `sessionID + callID`; `tool.execute.after` consumes the captured call and records material signals such as file edits, verification commands, and search usage. On idle, auto update scans recent session messages, evaluates every turn, skips no-material turns, and starts a hidden maintainer update job only when durable project information likely changed.
 
-Update results are logged internally and are not injected into the main-agent reply. The next auto prepare reads the updated context.
+Update is launched through OpenCode's official subtask/Task path by submitting a `subtask` part to the parent session with `promptAsync`. OpenCode then creates the assistant-side `task` tool part, stores `metadata.sessionId`, creates the child session with `parentID`, and renders the same clickable task card used by normal subagent delegation. Update results are visible through that task execution record and the maintainer child session. The next auto prepare reads the updated context.
 
 ## Maintainer execution
 
@@ -127,6 +129,8 @@ auto init, auto update, or project_context_search
 ```
 
 No status, cancel, or streaming interface is exposed for maintainer jobs in V1.
+
+The parent session receives the official task execution card, not ad-hoc no-reply status messages. The maintainer prompt, private workspace paths, and detailed scaffold edits remain inside the child session/private workspace boundary.
 
 ## Non-goals
 

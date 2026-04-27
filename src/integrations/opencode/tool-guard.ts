@@ -12,6 +12,13 @@ function readTarget(args: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function isProjectContextUpdateSubtask(args: unknown): boolean {
+  if (typeof args !== "object" || args === null || Array.isArray(args)) return false;
+  const record = args as Record<string, unknown>;
+  const target = record.subagent_type ?? record.agent ?? record.subagent;
+  return target === PROJECT_CONTEXT_MAINTAINER_AGENT_ID && record.command === "project_context_update";
+}
+
 function isProjectContextTool(tool: string): boolean {
   return PROJECT_CONTEXT_TOOL_NAMES.has(tool);
 }
@@ -51,6 +58,7 @@ export function createProjectContextToolGuard(options: { client?: OpenCodeClient
       throw new Error("Project Context workspace is private. Do not access it directly; project_context_search is a rare fallback only for blocking historical context gaps.");
     }
     if (event.tool !== "task") return;
+    if (isProjectContextUpdateSubtask(output.args) || isProjectContextUpdateSubtask(event.args)) return;
     const target = readTarget(output.args) ?? readTarget(event.args);
     if (target !== PROJECT_CONTEXT_MAINTAINER_AGENT_ID) return;
     throw new Error("Do not invoke project-context-maintainer directly. Project Context init, prepare, and update are automatic; project_context_search is a rare fallback only for blocking historical context gaps.");
