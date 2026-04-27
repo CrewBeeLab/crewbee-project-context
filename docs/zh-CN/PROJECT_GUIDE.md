@@ -165,7 +165,7 @@ Update 失败只写日志和内部状态，不污染主 Agent 当前回复；下
 
 ```json
 {
-  "plugin": ["crewbee", "crewbee-project-context"]
+  "plugin": ["crewbee", "crewbee-project-context@latest"]
 }
 ```
 

@@ -13,6 +13,7 @@ const RUNTIME_RULE = [
 
 interface PreparedSessionState {
   revision: string;
+  visibleRevision?: string;
   briefText?: string;
   systemBriefPending?: boolean;
 }
@@ -156,7 +157,7 @@ export function createProjectContextSystemTransformHook(input: { service: Projec
       return;
     }
     const brief = await input.service.prepareContext({ goal: "Prepare automatic project context for the current user task.", budget: "compact" });
-    if (sessionID !== undefined) preparedSessions.set(sessionID, { revision, briefText: brief.text });
+    if (sessionID !== undefined) preparedSessions.set(sessionID, { ...previous, revision, briefText: brief.text, systemBriefPending: false });
     output.system.push(`${RUNTIME_RULE}\n\n${brief.text}`);
     await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "auto-prepare", sessionID: hookInput.sessionID, details: { estimatedTokens: brief.estimatedTokens, warnings: brief.warnings.length } });
   };
@@ -172,9 +173,18 @@ export function createProjectContextSystemTransformHook(input: { service: Projec
     const sessionID = hookInput.sessionID;
     if (!sessionID) return;
     const revision = await contextRevision(input.projectRoot);
-    if (preparedSessions.get(sessionID)?.revision === revision) return;
-    const brief = await input.service.prepareContext({ goal: "Prepare automatic project context for the current user task.", budget: "compact" });
-    preparedSessions.set(sessionID, { revision, briefText: brief.text, systemBriefPending: true });
+    const previous = preparedSessions.get(sessionID);
+    if (previous?.visibleRevision === revision) return;
+    const brief = previous?.revision === revision && previous.briefText !== undefined
+      ? { text: previous.briefText, estimatedTokens: 0, warnings: [] }
+      : await input.service.prepareContext({ goal: "Prepare automatic project context for the current user task.", budget: "compact" });
+    preparedSessions.set(sessionID, {
+      ...previous,
+      revision,
+      visibleRevision: revision,
+      briefText: brief.text,
+      systemBriefPending: previous?.revision === revision ? previous.systemBriefPending === true : true
+    });
     const messageID = readString(output.message, "id") ?? readString(output.parts?.[0], "messageID");
     const partSessionID = readString(output.message, "sessionID") ?? readString(output.parts?.[0], "sessionID") ?? sessionID;
     if (!messageID) {

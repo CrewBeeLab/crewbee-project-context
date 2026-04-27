@@ -61,7 +61,7 @@ In product usage, install `crewbee` and `crewbee-project-context` as sibling Ope
 
 ```json
 {
-  "plugin": ["crewbee", "crewbee-project-context"]
+  "plugin": ["crewbee", "crewbee-project-context@latest"]
 }
 ```
 
