@@ -29,7 +29,7 @@ export interface OpenCodeToolContextLike {
 }
 
 export type OpenCodePromptPartLike =
-  | { type: "text"; text: string }
+  | { type: "text"; text: string; synthetic?: boolean; metadata?: Record<string, unknown> }
   | { type: "subtask"; prompt: string; description: string; agent: string; command?: string };
 
 export interface OpenCodeClientLike {

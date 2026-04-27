@@ -1,6 +1,7 @@
 import { ProjectContextService } from "../../service/project-context-service.js";
 import { PROJECT_CONTEXT_MAINTAINER_AGENT_ID } from "./maintainer-prompt.js";
 import { writeRuntimeLog } from "./runtime-log.js";
+import { MaintainerSubsessionRunner } from "./subsession-runner.js";
 import type { OpenCodeClientLike } from "./types.js";
 
 interface SessionUpdateState {
@@ -99,6 +100,7 @@ function readEventText(event: unknown): string {
 
 function textMaterialReasons(role: string | undefined, text: string): string[] {
   if (text.length === 0) return [];
+  if (/Project Context (prepared|update) ·/i.test(text)) return [];
   const lower = text.toLowerCase();
   const reasons: string[] = [];
   if (role === "assistant") {
@@ -252,31 +254,48 @@ export class AutoUpdateManager {
   private async runUpdate(sessionID: string, reasons: string[], toolEvents: string[]): Promise<void> {
     await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "start", sessionID, details: { reasons: reasons.join(",") } });
     if (!this.input.client.session.promptAsync) {
-      await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "failed", sessionID, error: "OpenCode client does not expose session.promptAsync for visible update task." });
+      await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "failed", sessionID, error: "OpenCode client does not expose session.promptAsync for maintainer update." });
       return;
     }
+    let maintainerSessionID: string | undefined;
+    const runner = new MaintainerSubsessionRunner(this.input.client);
+    const result = await runner.run({
+      kind: "update",
+      title: `Project Context Update (@${PROJECT_CONTEXT_MAINTAINER_AGENT_ID} subagent)`,
+      callerSessionID: sessionID,
+      callerAgent: "project-context-runtime",
+      projectRoot: this.input.projectRoot,
+      goal: "Automatically maintain Project Context after a main agent turn.",
+      payload: { reasons, toolEvents }
+    }, {
+      timeoutMs: 90_000,
+      onSessionCreated: (createdSessionID) => {
+        maintainerSessionID = createdSessionID;
+        this.ignoreSession(createdSessionID);
+      }
+    });
+    await this.appendVisibleUpdateStatus(sessionID, result.ok ? "completed" : "failed", maintainerSessionID ?? result.sessionID, result.ok ? undefined : result.error);
+    await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: result.ok ? "completed" : "failed", sessionID, ...(maintainerSessionID ? { details: { maintainerSessionID, reasons: reasons.join(",") } } : { details: { reasons: reasons.join(",") } }), error: result.ok ? undefined : result.error });
+  }
 
-    await this.input.client.session.promptAsync({
-      path: { id: sessionID },
+  private async appendVisibleUpdateStatus(parentSessionID: string, status: "completed" | "failed", maintainerSessionID: string | undefined, error: string | undefined): Promise<void> {
+    if (!this.input.client.session.prompt) {
+      await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "visible-status-unavailable", sessionID: parentSessionID, error: "OpenCode client does not expose session.prompt noReply for visible update status." });
+      return;
+    }
+    const text = [
+      status === "completed"
+        ? `Project Context update · completed${maintainerSessionID ? ` · maintainer session ${maintainerSessionID} ↗` : ""}`
+        : `Project Context update · failed · using previous context${maintainerSessionID ? ` · details ${maintainerSessionID} ↗` : ""}`,
+      error ? `- Error: ${error}` : undefined
+    ].filter((line): line is string => typeof line === "string").join("\n");
+    await this.input.client.session.prompt({
+      path: { id: parentSessionID },
       body: {
-        parts: [{
-          type: "subtask",
-          agent: PROJECT_CONTEXT_MAINTAINER_AGENT_ID,
-          description: "Project Context Update",
-          command: "project_context_update",
-          prompt: [
-            "Automatically maintain Project Context after a main agent turn.",
-            "",
-            "Material change reasons:",
-            ...reasons.map((reason) => `- ${reason}`),
-            "",
-            "Tool events:",
-            ...(toolEvents.length > 0 ? toolEvents.map((event) => `- ${event}`) : ["- none recorded"])
-          ].join("\n")
-        }]
+        noReply: true,
+        parts: [{ type: "text", text, synthetic: true, metadata: { kind: "project_context_update_status", status, maintainerSessionID } }]
       },
       query: { directory: this.input.projectRoot, workspace: this.input.projectRoot }
     });
-    await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "visible-task-launched", sessionID, details: { reasons: reasons.join(",") } });
   }
 }
