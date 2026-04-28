@@ -2,7 +2,7 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import { DEFAULT_CONTEXT_DIR, SEARCHABLE_CONTEXT_FILES } from "../../core/constants.js";
 import { ProjectContextService } from "../../service/project-context-service.js";
-import { hasSessionMethod, sessionGet } from "./client-adapter.js";
+import { hasSessionMethod, sessionGet, sessionPrompt } from "./client-adapter.js";
 import type { OpenCodeClientLike } from "./types.js";
 import { writeRuntimeLog } from "./runtime-log.js";
 import { redactPrivateContextPaths } from "./visibility.js";
@@ -23,7 +23,7 @@ interface PreparedSessionState {
 
 const preparedSessions = new Map<string, PreparedSessionState>();
 const PREPARE_STATUS_TITLE = "Project Context Prepare Summary";
-const RUNTIME_VISIBLE_TEXT = /Project Context (Prepare Summary|prepared) · compact · revision/i;
+const RUNTIME_VISIBLE_TEXT = /Project Context (Prepare Summary|prepared) · compact · revision|Project Context Maintainer job: update|Project Context Update|project_context_update|pcu_[a-z0-9_]+/i;
 let partCounter = 0;
 
 function projectName(projectRoot: string): string {
@@ -128,7 +128,7 @@ function visiblePrepareSummary(input: { revision: string; estimatedTokens: numbe
     .replace(/STATE\.yaml|HANDOFF\.md|PLAN\.yaml|MEMORY_INDEX\.md|DECISIONS\.md|REFERENCES\.md|observations/gi, "[project-context-private]");
 }
 
-type PrepareStatusSurface = "tui.toast" | "chat.message.synthetic" | "tui.toast+chat.message.synthetic";
+type PrepareStatusSurface = "session.prompt.noReply" | "tui.toast" | "chat.message.synthetic" | "session.prompt.noReply+tui.toast" | "tui.toast+chat.message.synthetic";
 
 async function showPrepareStatus(input: { client: OpenCodeClientLike; summary: string }): Promise<PrepareStatusSurface | undefined> {
   const toast = {
@@ -146,6 +146,19 @@ async function showPrepareStatus(input: { client: OpenCodeClientLike; summary: s
     return "tui.toast";
   }
   return undefined;
+}
+
+async function showPrepareSummaryMessage(input: { client: OpenCodeClientLike; sessionID: string; projectRoot: string; summary: string }): Promise<PrepareStatusSurface | undefined> {
+  if (!hasSessionMethod(input.client, "prompt")) return undefined;
+  await sessionPrompt(input.client, {
+    sessionID: input.sessionID,
+    body: {
+      noReply: true,
+      parts: [{ type: "text", text: input.summary, ignored: true, metadata: { kind: "project_context_prepare", title: PREPARE_STATUS_TITLE } }]
+    },
+    query: { directory: input.projectRoot, workspace: input.projectRoot }
+  });
+  return "session.prompt.noReply";
 }
 
 function readMessageID(value: unknown): string | undefined {
@@ -234,7 +247,7 @@ function collectText(value: unknown, output: string[]): void {
   }
   if (typeof value !== "object" || value === null) return;
   const record = value as Record<string, unknown>;
-  for (const key of ["text", "content", "output"]) {
+  for (const key of ["text", "content", "output", "prompt", "description"]) {
     if (typeof record[key] === "string") output.push(record[key]);
   }
   for (const key of ["parts", "message", "data", "properties", "info"]) collectText(record[key], output);
@@ -254,11 +267,17 @@ export function createProjectContextSystemTransformHook(input: { service: Projec
     const summary = state.visibleSummaryPending;
     preparedSessions.set(sessionID, { ...state, visibleSummaryPending: undefined, visibleFlushInFlight: true });
     try {
-      const appendedChatPart = output !== undefined ? appendPrepareSummaryPart({ sessionID, messageID, output, summary }) : false;
-      let surface: PrepareStatusSurface | undefined = appendedChatPart ? "chat.message.synthetic" : undefined;
+      let surface: PrepareStatusSurface | undefined;
+      try {
+        surface = await showPrepareSummaryMessage({ client: input.client, sessionID, projectRoot: input.projectRoot, summary });
+      } catch (error) {
+        await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "visible-prepare-message-failed", sessionID, error: error instanceof Error ? error.message : String(error) });
+      }
+      const appendedChatPart = surface === undefined && output !== undefined ? appendPrepareSummaryPart({ sessionID, messageID, output, summary }) : false;
+      if (appendedChatPart) surface = "chat.message.synthetic";
       try {
         const toastSurface = await showPrepareStatus({ client: input.client, summary });
-        if (toastSurface === "tui.toast") surface = surface === "chat.message.synthetic" ? "tui.toast+chat.message.synthetic" : "tui.toast";
+        if (toastSurface === "tui.toast") surface = surface === "session.prompt.noReply" ? "session.prompt.noReply+tui.toast" : surface === "chat.message.synthetic" ? "tui.toast+chat.message.synthetic" : "tui.toast";
       } catch (error) {
         await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "visible-prepare-toast-failed", sessionID, error: error instanceof Error ? error.message : String(error) });
       }

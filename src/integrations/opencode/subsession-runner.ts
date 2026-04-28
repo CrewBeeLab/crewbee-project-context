@@ -1,4 +1,4 @@
-import { hasSessionMethod, sessionAbort, sessionCreate, sessionMessages, sessionPromptAsync, sessionStatus } from "./client-adapter.js";
+import { hasSessionMethod, sessionAbort, sessionCreate, sessionMessages, sessionPrompt, sessionPromptAsync, sessionStatus } from "./client-adapter.js";
 import { PROJECT_CONTEXT_MAINTAINER_AGENT_ID } from "./maintainer-prompt.js";
 import type { OpenCodeClientLike } from "./types.js";
 import { writeRuntimeLog } from "./runtime-log.js";
@@ -197,8 +197,12 @@ function readSessionStatusType(statuses: unknown, sessionID: string): string | u
 }
 
 function renderJob(job: MaintainerJob): string {
+  const jobID = typeof job.payload?.jobID === "string" ? job.payload.jobID : undefined;
+  const payloadPath = typeof job.payload?.payloadPath === "string" ? job.payload.payloadPath : undefined;
   return [
     `Project Context Maintainer job: ${job.kind}`,
+    jobID ? `Job ID: ${jobID}` : undefined,
+    payloadPath ? `Payload path: ${payloadPath}` : undefined,
     `Caller agent: ${job.callerAgent}`,
     `Project root: ${job.projectRoot}`,
     job.goal ? `Goal: ${job.goal}` : undefined,
@@ -226,6 +230,18 @@ export class MaintainerSubsessionRunner {
     try {
       await writeRunLog(job.projectRoot, { event: "start", runId: id, jobKind: job.kind, callerAgent: job.callerAgent, sessionID: job.callerSessionID });
       if (aborted(options.abort)) return { ok: false, output: "", error: "Maintainer subsession was aborted before start." };
+
+      if (job.kind === "update" && hasSessionMethod(this.client, "prompt")) {
+        await withTimeout(sessionPrompt(this.client, {
+          sessionID: job.callerSessionID,
+          body: {
+            parts: [{ type: "subtask" as const, prompt: renderJob(job), description: job.title, agent: PROJECT_CONTEXT_MAINTAINER_AGENT_ID }]
+          },
+          query
+        }), Math.min(API_CALL_TIMEOUT_MS, timeoutMs), "OpenCode maintainer update subtask prompt");
+        await writeRunLog(job.projectRoot, { event: "subtask-submitted", runId: id, jobKind: job.kind, callerAgent: job.callerAgent, sessionID: job.callerSessionID, elapsedMs: Date.now() - startedAt });
+        return { ok: true, output: "Project Context update subtask submitted." };
+      }
 
       const created = await withTimeout(sessionCreate(this.client, { parentID: job.callerSessionID, title: job.title, query }), Math.min(API_CALL_TIMEOUT_MS, timeoutMs), "OpenCode maintainer subsession create");
       sessionID = readString(created, "id");

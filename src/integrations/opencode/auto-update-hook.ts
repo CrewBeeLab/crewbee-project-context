@@ -137,7 +137,7 @@ function collectText(value: unknown, output: string[]): void {
   }
   if (typeof value !== "object" || value === null) return;
   const record = value as Record<string, unknown>;
-  for (const key of ["text", "content", "output"]) {
+  for (const key of ["text", "content", "output", "prompt", "description"]) {
     if (typeof record[key] === "string") output.push(record[key]);
   }
   for (const key of ["parts", "message", "data", "properties", "info"]) collectText(record[key], output);
@@ -460,10 +460,9 @@ export class AutoUpdateManager {
       void this.runUpdate(sessionID, reasons, toolEvents).finally(() => {
         state.inFlight = false;
         this.updateTerminalSessions.add(sessionID);
-        if (state.pendingAfterFlight || state.materialReasons.size > 0) {
-          state.pendingAfterFlight = false;
-          void this.drainSession(sessionID);
-        }
+        state.pendingAfterFlight = false;
+        state.materialReasons.clear();
+        state.toolEvents = [];
       });
     } finally {
       state.drainInFlight = false;
@@ -511,6 +510,7 @@ export class AutoUpdateManager {
 
   private async buildUpdateJobPayload(sessionID: string, reasons: string[], toolEvents: RecordedToolEvent[]): Promise<UpdateJobPayload> {
     const messages = await this.readRecentMessages(sessionID);
+    this.markMessagesConsumedForUpdate(sessionID, messages);
     const userMessages = messages.filter((message) => readRole(message) === "user" && !runtimeText(readEventText(message)));
     const assistantMessages = messages.filter((message) => readRole(message) === "assistant" && !runtimeText(readEventText(message)));
     const assistantFinalText = truncateText(readEventText(assistantMessages.at(-1)), 6000);
@@ -562,6 +562,17 @@ export class AutoUpdateManager {
     }
   }
 
+  private markMessagesConsumedForUpdate(sessionID: string, messages: unknown[]): void {
+    const state = this.state(sessionID);
+    const recent = messages.slice(-12);
+    state.lastMessageSignature = recent.map((message) => `${readRole(message) ?? "unknown"}:${readEventText(message)}`).join("\n---\n");
+    for (const message of recent) {
+      const role = readRole(message);
+      if (role !== "assistant" && role !== "user") continue;
+      state.seenMessageFingerprints.add(messageFingerprint(message));
+    }
+  }
+
   private registerUpdateJob(input: { sessionID: string; jobID: string; payloadPath: string }): void {
     const jobs = this.activeUpdateJobs.get(input.sessionID) ?? new Set<string>();
     jobs.add(input.jobID);
@@ -601,11 +612,25 @@ export class AutoUpdateManager {
     }
   }
 
+  private async cleanupParentUpdateJob(input: { parentSessionID: string; jobID: string; payloadPath: string; reason: string }): Promise<void> {
+    try {
+      await rm(input.payloadPath, { force: true });
+    } catch (error) {
+      await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "payload-cleanup-failed", sessionID: input.parentSessionID, details: { jobID: input.jobID, reason: input.reason }, error: error instanceof Error ? error.message : String(error) });
+    } finally {
+      const current = this.activeUpdateJobs.get(input.parentSessionID);
+      current?.delete(input.jobID);
+      if (current?.size === 0) this.activeUpdateJobs.delete(input.parentSessionID);
+      this.updateJobPayloadPaths.delete(input.jobID);
+    }
+  }
+
   private async runUpdate(sessionID: string, reasons: string[], toolEvents: RecordedToolEvent[]): Promise<void> {
     await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "start", sessionID, details: { reasons: reasons.join(",") } });
+    let registeredJob: { jobID: string; payloadPath: string } | undefined;
     try {
-      if (!hasSessionMethod(this.input.client, "create") || !hasSessionMethod(this.input.client, "promptAsync")) {
-        await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "failed", sessionID, error: "OpenCode client does not expose session.create/session.promptAsync for isolated maintainer update." });
+      if (!hasSessionMethod(this.input.client, "prompt")) {
+        await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "failed", sessionID, error: "OpenCode client does not expose session.prompt for parent-session update subtask card." });
         return;
       }
       const payload = await this.buildUpdateJobPayload(sessionID, reasons, toolEvents);
@@ -613,6 +638,7 @@ export class AutoUpdateManager {
       await mkdir(path.dirname(payloadPath), { recursive: true });
       await writeFile(payloadPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
       this.registerUpdateJob({ sessionID, jobID: payload.jobID, payloadPath });
+      registeredJob = { jobID: payload.jobID, payloadPath };
       await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "payload-written", sessionID, details: { jobID: payload.jobID } });
       const runner = new MaintainerSubsessionRunner(this.input.client);
       const result = await runner.run({
@@ -626,15 +652,17 @@ export class AutoUpdateManager {
           "Use the job payload to update only the private Project Context scaffold.",
           "Do not continue or write to the parent session after the update is complete."
         ].join(" "),
-        payload: { jobID: payload.jobID }
+        payload: { jobID: payload.jobID, payloadPath }
       }, {
         onSessionCreated: (createdSessionID) => {
           this.markRuntimeUpdateMaintainerSession({ sessionID: createdSessionID, parentSessionID: sessionID, jobID: payload.jobID });
         }
       });
       if (result.sessionID) await this.cleanupMaintainerUpdateJob(result.sessionID, result.ok ? "maintainer_completed" : "maintainer_failed");
+      else if (!result.ok) await this.cleanupParentUpdateJob({ parentSessionID: sessionID, jobID: payload.jobID, payloadPath, reason: "maintainer_failed_without_session" });
       await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: result.ok ? "maintainer-completed" : "maintainer-failed", sessionID, details: { jobID: payload.jobID, reasons: reasons.join(","), maintainerSessionID: result.sessionID }, ...(result.ok ? {} : { error: result.error ?? result.output }) });
     } catch (error) {
+      if (registeredJob !== undefined) await this.cleanupParentUpdateJob({ parentSessionID: sessionID, jobID: registeredJob.jobID, payloadPath: registeredJob.payloadPath, reason: "run_update_failed" });
       await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "failed", sessionID, details: { reasons: reasons.join(",") }, error: error instanceof Error ? error.message : String(error) });
     }
   }

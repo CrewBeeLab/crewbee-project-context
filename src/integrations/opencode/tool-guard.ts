@@ -106,7 +106,16 @@ export function createProjectContextToolGuard(options: { client?: OpenCodeClient
       }
       if (options.projectRoot) await writeRuntimeLog(options.projectRoot, { component: "tool-guard", event: "allow-project-context-tool", sessionID: event.sessionID, agent: event.agent, tool: event.tool });
     }
-    if (isProjectContextMaintainer(event.agent) || runtimeMaintainerSession) return;
+    if (isProjectContextMaintainer(event.agent) || runtimeMaintainerSession) {
+      const jobID = findRuntimeUpdateJobID(event.args) ?? findRuntimeUpdateJobID(output.args);
+      const parentID = jobID ? await parentSessionID(options.client, event.sessionID, options.projectRoot) : undefined;
+      if (jobID && parentID && (options.isActiveUpdateJob?.(parentID, jobID) === true || await isPersistedUpdateJobForParent(options.projectRoot, parentID, jobID))) {
+        options.markMaintainerSession?.(event.sessionID);
+        options.markRuntimeUpdateMaintainerSession?.({ sessionID: event.sessionID, parentSessionID: parentID, jobID });
+        if (options.projectRoot) await writeRuntimeLog(options.projectRoot, { component: "tool-guard", event: "allow-runtime-update-maintainer", sessionID: event.sessionID, details: { parentID, jobID } });
+      }
+      return;
+    }
     if (containsPrivateContextAccess(event.args) || containsPrivateContextAccess(output.args)) {
       const jobID = findRuntimeUpdateJobID(event.args) ?? findRuntimeUpdateJobID(output.args);
       const parentID = jobID ? await parentSessionID(options.client, event.sessionID, options.projectRoot) : undefined;
