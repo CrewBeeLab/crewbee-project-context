@@ -250,6 +250,12 @@ function extractJobID(text: string): string | undefined {
   return match?.[1];
 }
 
+function extractRuntimeJobID(value: unknown): string | undefined {
+  const text = `${readEventText(value)}\n${stringifyArgs(value)}`;
+  const match = text.match(/pcu_[a-z0-9_]+/i);
+  return match?.[0];
+}
+
 function readTaskTarget(args: unknown): string | undefined {
   if (typeof args !== "object" || args === null || Array.isArray(args)) return undefined;
   const record = args as Record<string, unknown>;
@@ -318,8 +324,11 @@ export class AutoUpdateManager {
     this.pendingToolCalls.set(toolCallKey(input.sessionID, input.callID), { tool: input.tool, args: output.args });
   }
 
-  public recordToolAfter(input: { tool: string; sessionID: string; callID: string; args?: unknown }, output?: { result?: unknown; [key: string]: unknown }): void {
-    if (this.maintainerSessions.has(input.sessionID)) return;
+  public async recordToolAfter(input: { tool: string; sessionID: string; callID: string; args?: unknown }, output?: { result?: unknown; [key: string]: unknown }): Promise<void> {
+    if (this.maintainerSessions.has(input.sessionID)) {
+      if (input.tool === "read" && extractRuntimeJobID(input.args) !== undefined) await this.cleanupMaintainerUpdateJob(input.sessionID, "payload_read_completed");
+      return;
+    }
     if (this.updateTerminalSessions.has(input.sessionID)) return;
     const key = toolCallKey(input.sessionID, input.callID);
     const pending = this.pendingToolCalls.get(key);
@@ -450,6 +459,12 @@ export class AutoUpdateManager {
       }
       if (state.materialReasons.size === 0) {
         await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "skipped", sessionID, details: { reason: "no_material_change" } });
+        return;
+      }
+      if (!state.materialReasons.has("files_changed") && !state.materialReasons.has("context_needs_population")) {
+        state.materialReasons.clear();
+        state.toolEvents = [];
+        await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "skipped", sessionID, details: { reason: "no_engineering_file_change" } });
         return;
       }
       state.inFlight = true;

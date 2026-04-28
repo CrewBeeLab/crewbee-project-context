@@ -50,7 +50,7 @@ export async function server(ctx: OpenCodePluginInputLike) {
       autoUpdate.recordToolBefore(input, output);
     },
     "tool.execute.after": async (input: { tool: string; sessionID: string; callID: string; agent?: string; args?: unknown }, output: { result?: unknown; [key: string]: unknown }) => {
-      autoUpdate.recordToolAfter(input, output);
+      await autoUpdate.recordToolAfter(input, output);
       await redactOutput(input, output);
     }
   };

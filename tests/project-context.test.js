@@ -584,6 +584,8 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
       { info: { role: "user" }, parts: [{ type: "text", text: "Please implement auto update." }] },
       { info: { role: "assistant" }, parts: [{ type: "text", text: "已实现 auto update。决定采用 Task card。下一步运行测试。" }] }
     ];
+    await hooks["tool.execute.before"]({ tool: "apply_patch", sessionID: "parent-session", callID: "patch", agent: "coding-leader" }, { args: { patchText: "*** Begin Patch\n*** Update File: src/example.ts\n@@\n-old\n+new\n*** End Patch" } });
+    await hooks["tool.execute.after"]({ tool: "apply_patch", sessionID: "parent-session", callID: "patch", agent: "coding-leader" }, { result: "patched src/example.ts" });
     await hooks["tool.execute.before"]({ tool: "bash", sessionID: "parent-session", callID: "test", agent: "coding-leader" }, { args: { command: "npm test" } });
     await hooks["tool.execute.after"]({ tool: "bash", sessionID: "parent-session", callID: "test", agent: "coding-leader" }, { result: "tests passed" });
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
@@ -602,9 +604,10 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     assert.equal(transformedUpdate.messages[0].parts.length, 1);
     assert.equal(transformedUpdate.messages[0].parts[0].text, "normal assistant text");
     assert.ok(updatePayloads[0].payload.trigger.reasons.includes("verification"));
+    assert.ok(updatePayloads[0].payload.trigger.reasons.includes("files_changed"));
     assert.ok(updatePayloads[0].payload.engineeringChanges.verification.some((event) => event.resultSummary.includes("tests passed")));
     await hooks["tool.execute.before"]({ tool: "read", sessionID: "runtime-update-child", callID: "payload-read-active", agent: "project-context-maintainer" }, { args: { filePath: updatePayloads[0].path } });
-    await hooks.event({ event: { type: "session.status", properties: { sessionID: "runtime-update-child", status: { type: "idle" } } } });
+    await hooks["tool.execute.after"]({ tool: "read", sessionID: "runtime-update-child", callID: "payload-read-active", agent: "project-context-maintainer", args: { filePath: updatePayloads[0].path } }, { result: "payload read" });
     await waitFor(async () => {
       try {
         await readFile(updatePayloads[0].path, "utf8");
@@ -667,11 +670,11 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, { message: { info: { role: "user" } }, parts: [{ type: "text", text: "请更新上下文。" }] });
     await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, { message: { info: { role: "user" } }, parts: [{ type: "text", text: "请更新上下文。" }] });
     await hooks.event({ event: { type: "session.status", properties: { info: { id: "parent-session" }, status: { type: "idle" } } } });
-    await waitFor(() => updatePayloads.length === 2);
-    assert.equal(updatePayloads.length, 2);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(updatePayloads.length, 1);
     await hooks.event({ event: { type: "session.status", properties: { info: { id: "parent-session" }, status: { type: "idle" } } } });
     await new Promise((resolve) => setTimeout(resolve, 50));
-    assert.equal(updatePayloads.length, 2);
+    assert.equal(updatePayloads.length, 1);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -802,7 +805,7 @@ test("OpenCode auto-update detects template scaffold and uses private job payloa
     assert.equal(prompts[0].body.parts[0].type, "subtask");
     assert.equal(prompts[0].body.parts[0].agent, "project-context-maintainer");
     await hooks["tool.execute.before"]({ tool: "read", sessionID: "runtime-update-child", callID: "template-payload-read", agent: "project-context-maintainer" }, { args: { filePath: payloads[0].path } });
-    await hooks.event({ event: { type: "session.status", properties: { sessionID: "runtime-update-child", status: { type: "idle" } } } });
+    await hooks["tool.execute.after"]({ tool: "read", sessionID: "runtime-update-child", callID: "template-payload-read", agent: "project-context-maintainer", args: { filePath: payloads[0].path } }, { result: "payload read" });
     await waitFor(async () => {
       try {
         await readFile(payloads[0].path, "utf8");
@@ -854,6 +857,8 @@ test("OpenCode auto-update failures are best-effort and do not retry without new
     await populateTemplateContext(root);
     hooks = await publicApi.ProjectContextOpenCodePlugin.server({ client, worktree: root, directory: root });
 
+    await hooks["tool.execute.before"]({ tool: "apply_patch", sessionID: "parent-session", callID: "patch", agent: "coding-leader" }, { args: { patchText: "*** Begin Patch\n*** Update File: src/feature.ts\n@@\n-old\n+new\n*** End Patch" } });
+    await hooks["tool.execute.after"]({ tool: "apply_patch", sessionID: "parent-session", callID: "patch", agent: "coding-leader" }, { result: "patched src/feature.ts" });
     await hooks["tool.execute.before"]({ tool: "bash", sessionID: "parent-session", callID: "test", agent: "coding-leader" }, { args: { command: "npm test" } });
     await hooks["tool.execute.after"]({ tool: "bash", sessionID: "parent-session", callID: "test", agent: "coding-leader" }, { result: "tests passed" });
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
@@ -883,6 +888,48 @@ test("OpenCode auto-update failures are best-effort and do not retry without new
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
     await new Promise((resolve) => setTimeout(resolve, 150));
     assert.equal(attemptedJobIDs.size, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenCode auto-update ignores commit-only work without engineering file changes", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-commit-only-"));
+  try {
+    let promptCalls = 0;
+    const client = {
+      session: {
+        async get(input) {
+          return { id: input.path.id, directory: root };
+        },
+        async messages() {
+          return [
+            { info: { role: "user" }, parts: [{ type: "text", text: "commit and push" }] },
+            { info: { role: "assistant" }, parts: [{ type: "text", text: "已提交并推送。下一步无需处理。" }] }
+          ];
+        },
+        async prompt(input) {
+          if (input.body.parts?.[0]?.type === "subtask") promptCalls += 1;
+          return {};
+        }
+      }
+    };
+    await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
+    await populateTemplateContext(root);
+    const hooks = await publicApi.ProjectContextOpenCodePlugin.server({ client, worktree: root, directory: root });
+
+    await hooks["tool.execute.before"]({ tool: "bash", sessionID: "parent-session", callID: "test-only", agent: "coding-leader" }, { args: { command: "npm test" } });
+    await hooks["tool.execute.after"]({ tool: "bash", sessionID: "parent-session", callID: "test-only", agent: "coding-leader" }, { result: "tests passed" });
+    await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(promptCalls, 0);
+
+    await hooks["tool.execute.before"]({ tool: "bash", sessionID: "parent-session", callID: "commit", agent: "coding-leader" }, { args: { command: "git commit -m \"test\"" } });
+    await hooks["tool.execute.after"]({ tool: "bash", sessionID: "parent-session", callID: "commit", agent: "coding-leader" }, { result: "[main abc123] test" });
+    await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    assert.equal(promptCalls, 0);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
