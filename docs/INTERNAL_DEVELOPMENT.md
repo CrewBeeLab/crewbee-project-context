@@ -22,7 +22,7 @@ Before declaring a change complete:
 1. run diagnostics;
 2. run tests;
 3. run build/typecheck;
-4. update `.crewbeectxt/STATE.yaml` and `.crewbeectxt/HANDOFF.md` if project state materially changed;
+4. update `.crewbee/.prjctxt/STATE.yaml` and `.crewbee/.prjctxt/HANDOFF.md` if project state materially changed;
 5. add a memory or decision only for high-signal durable information.
 
 ## Coding conventions
@@ -32,15 +32,15 @@ Before declaring a change complete:
 - Do not introduce abstractions before at least one real caller needs them.
 - Keep file-system writes explicit and conservative.
 - Do not read outside the project root for context operations.
-- Do not store secrets in `.crewbeectxt/`.
-- Do not duplicate long canonical docs into `.crewbeectxt/`; reference `docs/` instead.
-- Keep `.crewbeectxt/IMPLEMENTATION.md` aligned with the actual code.
-- Keep scaffold source documents under `templates/crewbeectxt-template/`; reserve `.crewbeectxt/` for production project context workspaces.
+- Do not store secrets in `.crewbee/.prjctxt/`.
+- Do not duplicate long canonical docs into `.crewbee/.prjctxt/`; reference `docs/` instead.
+- Keep `.crewbee/.prjctxt/IMPLEMENTATION.md` aligned with the actual code.
+- Keep scaffold source documents under `templates/prjctxt-template/`; reserve `.crewbee/.prjctxt/` for production project context workspaces.
 
 ## Module boundaries
 
 - `core` contains shared primitives only.
-- `workspace` owns `.crewbeectxt` paths, bootstrap, doctor, and file access.
+- `workspace` owns `.crewbee/.prjctxt` paths, bootstrap, doctor, and file access.
 - `indexer` owns lightweight scaffold parsing.
 - `capsule` owns Context Capsule and Task Context Brief compression.
 - `maintainer` owns maintainer-driven search support; initialization and update jobs are orchestrated by the OpenCode runtime and executed by the hidden maintainer.
@@ -53,6 +53,6 @@ Before declaring a change complete:
 
 For each meaningful implementation checkpoint, create or update:
 
-- `.crewbeectxt/observations/CP-xxxx.md`
-- `.crewbeectxt/MEMORY_INDEX.md` when durable memory is created
-- `.crewbeectxt/DECISIONS.md` when architecture/product decisions change
+- `.crewbee/.prjctxt/observations/CP-xxxx.md`
+- `.crewbee/.prjctxt/MEMORY_INDEX.md` when durable memory is created
+- `.crewbee/.prjctxt/DECISIONS.md` when architecture/product decisions change

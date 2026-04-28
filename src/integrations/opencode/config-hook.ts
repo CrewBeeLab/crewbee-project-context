@@ -70,7 +70,7 @@ function patchWatcherIgnore(config: OpenCodeConfigLike): void {
     ? { ...(config.watcher as Record<string, unknown>) }
     : {};
   const existingIgnore = Array.isArray(watcher.ignore) ? watcher.ignore : [];
-  const additions = [".crewbeectxt/cache/**", ".crewbeectxt/tmp/**", ".crewbeectxt/*.lock"];
+  const additions = [`${DEFAULT_CONTEXT_DIR}/cache/**`, `${DEFAULT_CONTEXT_DIR}/tmp/**`, `${DEFAULT_CONTEXT_DIR}/*.lock`];
   watcher.ignore = [...existingIgnore, ...additions.filter((entry) => !existingIgnore.includes(entry))];
   config.watcher = watcher;
 }

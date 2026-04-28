@@ -2,7 +2,7 @@
 
 ## Current Snapshot
 
-- Active step: C2/S11 â€” End-to-end OpenCode startup smoke verification.
+- Active step: C2/S11 â€?End-to-end OpenCode startup smoke verification.
 - Run status: running.
 - Last checkpoint: CP-0014.
 - Blockers: none known.
@@ -18,8 +18,8 @@ Adjusted OpenCode Desktop observability to match official OpenCode semantics: au
 ## Next Session Start Checklist
 
 1. Read this handoff.
-2. Check .crewbeectxt/STATE.yaml and .crewbeectxt/PLAN.yaml.
-3. Use .crewbeectxt/IMPLEMENTATION.md before broad code exploration.
+2. Check .crewbee/.prjctxt/STATE.yaml and .crewbee/.prjctxt/PLAN.yaml.
+3. Use .crewbee/.prjctxt/IMPLEMENTATION.md before broad code exploration.
 
 ## Exact Next Actions
 
@@ -30,7 +30,7 @@ Adjusted OpenCode Desktop observability to match official OpenCode semantics: au
 
 ## References
 
-- .crewbeectxt/PLAN.yaml
-- .crewbeectxt/STATE.yaml
-- .crewbeectxt/IMPLEMENTATION.md
-- .crewbeectxt/MEMORY_INDEX.md
+- .crewbee/.prjctxt/PLAN.yaml
+- .crewbee/.prjctxt/STATE.yaml
+- .crewbee/.prjctxt/IMPLEMENTATION.md
+- .crewbee/.prjctxt/MEMORY_INDEX.md

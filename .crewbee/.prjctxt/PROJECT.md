@@ -10,11 +10,11 @@ CrewBee Project Context
 
 ## Objective
 
-Provide a lightweight OpenCode plugin sidecar for CrewBee Agent Coding. The package owns the `.crewbeectxt/` workspace convention, templates, validation, capsule generation, context search, handoff/finalize flow, hidden maintainer subagent, and minimal OpenCode tools.
+Provide a lightweight OpenCode plugin sidecar for CrewBee Agent Coding. The package owns the `.crewbee/.prjctxt/` workspace convention, templates, validation, capsule generation, context search, handoff/finalize flow, hidden maintainer subagent, and minimal OpenCode tools.
 
 ## In Scope
 
-- `.crewbeectxt/` scaffold specification.
+- `.crewbee/.prjctxt/` scaffold specification.
 - Context initialization and validation.
 - Low-token context primer generation.
 - Minimal prepare/search/finalize runtime tools for main agents.
@@ -46,4 +46,4 @@ Provide a lightweight OpenCode plugin sidecar for CrewBee Agent Coding. The pack
 - Diagnostics pass.
 - Tests pass.
 - Build/typecheck pass.
-- `.crewbeectxt/` context remains consistent with implementation.
+- `.crewbee/.prjctxt/` context remains consistent with implementation.

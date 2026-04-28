@@ -82,7 +82,7 @@ function visiblePrepareSummary(input: { revision: string; estimatedTokens: numbe
     `Project Context prepared · compact · revision ${revisionLabel(input.revision)}`,
     "",
     ...(bullets.length > 0 ? bullets : [`- Brief injected for the main Agent.`, `- Estimated budget: ${input.estimatedTokens} tokens.`, `- Warnings: ${input.warnings.length}`])
-  ].join("\n").replace(/\.crewbeectxt|STATE\.yaml|HANDOFF\.md|PLAN\.yaml|observations/gi, "[project-context-private]");
+  ].join("\n").replace(/\.crewbee[\\/]\.prjctxt|STATE\.yaml|HANDOFF\.md|PLAN\.yaml|observations/gi, "[project-context-private]");
 }
 
 async function shouldInjectProjectContext(input: { sessionID?: string }, client: OpenCodeClientLike, projectRoot: string): Promise<boolean> {

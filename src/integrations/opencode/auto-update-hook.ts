@@ -223,9 +223,11 @@ export class AutoUpdateManager {
     const state = this.state(sessionID);
     if (state.inFlight) {
       state.pendingAfterFlight = true;
+      await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "evaluated", sessionID, details: { result: "in_flight", mode: "evaluate_every_turn" } });
       return;
     }
     if (state.materialReasons.size === 0) {
+      await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "evaluated", sessionID, details: { result: "skipped", reason: "no_material_change", mode: "evaluate_every_turn" } });
       await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "skipped", sessionID, details: { reason: "no_material_change" } });
       return;
     }
@@ -234,6 +236,7 @@ export class AutoUpdateManager {
     const toolEvents = [...state.toolEvents];
     state.materialReasons.clear();
     state.toolEvents = [];
+    await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "evaluated", sessionID, details: { result: "maintainer_update", reasons: reasons.join(","), mode: "evaluate_every_turn" } });
     void this.runUpdate(sessionID, reasons, toolEvents).finally(() => {
       state.inFlight = false;
       if (state.pendingAfterFlight || state.materialReasons.size > 0) {

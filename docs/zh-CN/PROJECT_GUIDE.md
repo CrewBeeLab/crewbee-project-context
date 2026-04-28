@@ -16,7 +16,7 @@ OpenCode
       └─ Hidden Maintainer
 ```
 
-Project Context 的生产 scaffold 目录固定为 `.crewbeectxt/`，与 CrewBee 本体可能使用的 `.crewbee/` 明确分离。
+Project Context 的生产 scaffold 目录固定为 `.crewbee/.prjctxt/`，放在 CrewBee 私有目录下，但与 CrewBee Core 状态保持子目录隔离。
 
 ## 2. 核心原则
 
@@ -24,11 +24,11 @@ Project Context 的生产 scaffold 目录固定为 `.crewbeectxt/`，与 CrewBee
 - 主 Agent 只看到 `project_context_search` 一个工具，但调用阈值很高：仅作为阻塞性历史上下文缺口的低频兜底。
 - init 自动执行：首个 root session 启动时，如 scaffold 框架缺失则创建模板并委派 maintainer 初始化。
 - prepare 自动执行：本地 I/O，快速注入 compact brief。
-- update 自动执行：主 Agent 回复完成后，按 material change 判断是否启动 hidden maintainer。
-- 不提供 `project_context_read`，不暴露 `.crewbeectxt/` 文件菜单。
+- update 自动执行：主 Agent 每轮回复完成后都会评估；无 material change 时记录 skipped，有 material change 时启动 hidden maintainer。
+- 不提供 `project_context_read`，不暴露 `.crewbee/.prjctxt/` 文件菜单。
 - Maintainer 是 OpenCode hidden subagent，通过插件 runtime 被动调用。
 - 不使用 `experimental.session.compacting`。
-- Maintainer 只维护 `.crewbeectxt/**`，不写业务代码。
+- Maintainer 只维护 `.crewbee/.prjctxt/**`，不写业务代码。
 
 ## 3. OpenCode hooks
 
@@ -37,11 +37,8 @@ Project Context 的生产 scaffold 目录固定为 `.crewbeectxt/`，与 CrewBee
 ```text
 config
 tool
-event
 chat.message
 experimental.chat.system.transform
-tool.execute.before
-tool.execute.after
 ```
 
 `config` 注入 hidden subagent `project-context-maintainer`，并给 visible primary/all agents 增加 task deny，防止直接 Task 调用 maintainer。
@@ -54,7 +51,7 @@ project_context_search
 
 `experimental.chat.system.transform` 负责首启 scaffold 检查/创建、注入极短 Runtime Rule，并在需要时自动注入 Project Context Brief。
 
-`event` 监听 `session.idle` 和 `session.status` idle，用于自动 update 评估。
+`event` 监听 `session.idle` 和 `session.status` idle，用于每轮自动 update 评估。
 
 `chat.message` 记录用户显式上下文更新意图。`tool.execute.before/after` 用于私有路径 guard、输出脱敏、按 sessionID+callID 捕获工具参数，以及记录 material change 信号。
 
@@ -66,15 +63,15 @@ Maintainer 权限：
 
 ```text
 read/glob/grep: allow
-edit: only .crewbeectxt/**
+edit: only .crewbee/.prjctxt/**
 bash: only git status/diff/log
 webfetch/websearch/task/session/project_context_*: deny
 ```
 
-## 5. `.crewbeectxt/` 工作区
+## 5. `.crewbee/.prjctxt/` 工作区
 
 ```text
-.crewbeectxt/
+.crewbee/.prjctxt/
   config.yaml
   PROJECT.md
   ARCHITECTURE.md
@@ -98,7 +95,7 @@ Auto Init 是首个 root session prompt 构建阶段的内部动作：
 ```text
 system transform
   -> 检查 scaffold 框架是否存在
-  -> 缺失时 ProjectContextService.initProjectContext() 创建模板
+  -> ProjectContextService.initProjectContext() 创建模板
   -> fire-and-forget 启动 MaintainerJob(initialize)
   -> maintainer 阅读 docs / architecture / tests / package metadata / 主要源码
   -> maintainer 初始化私有 context 内容
@@ -124,7 +121,7 @@ system transform
 不创建 subsession
 不调用 hidden maintainer
 不读取代码仓库全文
-不暴露 .crewbeectxt 路径
+不暴露 .crewbee/.prjctxt 路径
 ```
 
 ## 8. 手动 Search
@@ -148,11 +145,9 @@ Auto Update 是主 Agent 回复完成后的自动维护动作，不是工具：
 
 ```text
 chat.message 记录用户显式上下文更新意图
-tool.execute.before 捕获工具 args
-tool.execute.after 收集 material signals
-session.idle / session.status idle 触发 AutoUpdateManager
-如果无 material change：skip
-如果有 material change：MaintainerJob(update)
+session.idle / session.status idle 每轮触发 AutoUpdateManager.evaluate
+如果无 material change：记录 evaluated + skipped
+如果有 material change：记录 evaluated + MaintainerJob(update)
 ```
 
 Material change 信号包括：文件编辑、测试/构建/typecheck/lint、关键决策、计划变化、阻塞、用户明确要求记录上下文，以及 search 后产生长期有效结论。
@@ -187,9 +182,9 @@ npm run doctor
 - 首个 root prompt 如果 scaffold 缺失，会自动创建模板并启动 maintainer initialize job。
 - session 首次 root prompt 自动注入 brief。
 - follow-up 不重复注入 brief。
-- 有 material change 且 session idle 后自动触发 update。
+- 每轮 session idle 后都会触发 update evaluation；有 material change 时自动触发 maintainer update。
 - hidden maintainer 通过 subsession 执行 initialize/search/update。
-- `.crewbeectxt/` 不暴露给主 Agent。
+- `.crewbee/.prjctxt/` 不暴露给主 Agent。
 - doctor 通过。
 
 一句话：CrewBee 管“谁来做事”；`crewbee-project-context` 自动准备和维护工程上下文；主 Agent 只在自动上下文仍不足且存在阻塞性历史上下文缺口时才使用 `project_context_search`。

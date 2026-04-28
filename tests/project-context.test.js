@@ -11,6 +11,8 @@ import { MaintainerSubsessionRunner } from "../dist/src/integrations/opencode/su
 import { writeRuntimeLog } from "../dist/src/integrations/opencode/runtime-log.js";
 
 const service = (root) => new ProjectContextService(root);
+const CONTEXT_DIR = ".crewbee/.prjctxt";
+const contextPath = (root, ...parts) => path.join(root, ".crewbee", ".prjctxt", ...parts);
 
 test("public package surface stays focused on CrewBee sidecar usage", () => {
   assert.equal("project_context_read" in publicApi, false);
@@ -19,12 +21,12 @@ test("public package surface stays focused on CrewBee sidecar usage", () => {
   assert.equal(typeof publicApi.executeCrewBeeProjectContextTool, "function");
 });
 
-test("init creates a valid .crewbeectxt workspace", async () => {
+test("init creates a valid .crewbee/.prjctxt workspace", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-"));
   try {
     const init = await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
-    assert.ok(init.created.includes(".crewbeectxt/STATE.yaml"));
-    const quickstart = await readFile(path.join(root, ".crewbeectxt", "QUICKSTART.md"), "utf8");
+    assert.ok(init.created.includes(`${CONTEXT_DIR}/STATE.yaml`));
+    const quickstart = await readFile(contextPath(root, "QUICKSTART.md"), "utf8");
     assert.match(quickstart, /Demo Context Quickstart/);
     const validation = await service(root).validateContext();
     assert.equal(validation.ok, true, validation.errors.join("; "));
@@ -39,8 +41,8 @@ test("primer includes project and active step", async () => {
     await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
     const primer = await service(root).buildPrimer({ budgetTokens: 1000 });
     assert.match(primer.text, /Project Context: available/);
-    assert.doesNotMatch(primer.text, /\.crewbeectxt/);
-    assert.equal(primer.warnings.some((warning) => warning.includes(".crewbeectxt")), false);
+    assert.doesNotMatch(primer.text, /\.crewbee\/\.prjctxt/);
+    assert.equal(primer.warnings.some((warning) => warning.includes(CONTEXT_DIR)), false);
     assert.match(primer.text, /Demo/);
     assert.match(primer.text, /S1/);
     assert.ok(primer.estimatedTokens <= 1000);
@@ -68,7 +70,7 @@ test("prepare returns a task context brief", async () => {
     const brief = await prepareProjectContext(root, "Implement minimal CrewBee Project Context integration.");
     assert.match(brief.text, /Project Context Brief/);
     assert.match(brief.text, /Project Context: available/);
-    assert.doesNotMatch(brief.text, /\.crewbeectxt/);
+    assert.doesNotMatch(brief.text, /\.crewbee\/\.prjctxt/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -89,7 +91,7 @@ test("doctor rejects invalid active step", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-"));
   try {
     await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
-    await writeFile(path.join(root, ".crewbeectxt", "STATE.yaml"), "project_id: demo\nrun_status: running\nactive_cycle: C1\nactive_step_id: S999\nlast_checkpoint: CP-0001\nblockers: []\nnext_actions:\n  - action: Continue\n    owner: active-agent\n    source: PLAN.yaml\n", "utf8");
+    await writeFile(contextPath(root, "STATE.yaml"), "project_id: demo\nrun_status: running\nactive_cycle: C1\nactive_step_id: S999\nlast_checkpoint: CP-0001\nblockers: []\nnext_actions:\n  - action: Continue\n    owner: active-agent\n    source: PLAN.yaml\n", "utf8");
     const validation = await service(root).validateContext();
     assert.equal(validation.ok, false);
     assert.ok(validation.errors.some((error) => error.includes("active_step_id 'S999'")));
@@ -102,7 +104,7 @@ test("doctor rejects missing exact next actions", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-"));
   try {
     await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
-    await writeFile(path.join(root, ".crewbeectxt", "HANDOFF.md"), "# Session Handoff\n\n## Current Snapshot\n\n- Active step: C1/S1.\n", "utf8");
+    await writeFile(contextPath(root, "HANDOFF.md"), "# Session Handoff\n\n## Current Snapshot\n\n- Active step: C1/S1.\n", "utf8");
     const validation = await service(root).validateContext();
     assert.equal(validation.ok, false);
     assert.ok(validation.errors.some((error) => error.includes("Exact Next Actions")));
@@ -141,7 +143,7 @@ test("CrewBee bridge exposes only search as a manual Project Context tool", asyn
     const fragment = await buildCrewBeePromptFragment(root);
     assert.equal(fragment.enabled, true);
     assert.match(fragment.text, /Project Context: available/);
-    assert.doesNotMatch(fragment.text, /\.crewbeectxt/);
+    assert.doesNotMatch(fragment.text, /\.crewbee\/\.prjctxt/);
 
     const search = await executeCrewBeeProjectContextTool(root, "project_context_search", { goal: "project objective" });
     assert.match(search.text, /Project Context Search Result/);
@@ -183,7 +185,7 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
           return { "maintainer-session": { type: "idle" } };
         },
         async messages() {
-          return [{ role: "assistant", parts: [{ type: "text", text: "Maintainer result from .crewbeectxt/HANDOFF.md" }] }];
+          return [{ role: "assistant", parts: [{ type: "text", text: `Maintainer result from ${CONTEXT_DIR}/HANDOFF.md` }] }];
         }
       }
     };
@@ -201,17 +203,17 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     assert.equal(config.agent["coding-leader"].permission.task["project-context-maintainer"], "deny");
     assert.equal(config.agent.worker.permission.project_context_search, "deny");
     assert.equal(config.agent.worker.tools.project_context_search, false);
-    assert.ok(config.watcher.ignore.includes(".crewbeectxt/cache/**"));
+    assert.ok(config.watcher.ignore.includes(`${CONTEXT_DIR}/cache/**`));
 
     await assert.rejects(() => hooks["tool.execute.before"]({ tool: "task", sessionID: "s", callID: "c" }, { args: { subagent_type: "project-context-maintainer" } }), /Do not invoke/);
     await hooks["tool.execute.before"]({ tool: "task", sessionID: "s", callID: "internal-update" }, { args: { subagent_type: "project-context-maintainer", command: "project_context_update" } });
     await assert.rejects(() => hooks["tool.execute.before"]({ tool: "project_context_search", sessionID: "child-session", callID: "c", agent: "worker" }, { args: { goal: "x" } }), /root primary-agent sessions/);
     await assert.rejects(() => hooks["tool.execute.before"]({ tool: "project_context_search", sessionID: "maintainer-session", callID: "c", agent: "project-context-maintainer" }, { args: { goal: "x" } }), /must not call project_context/);
-    await assert.rejects(() => hooks["tool.execute.before"]({ tool: "read", sessionID: "s", callID: "c", agent: "coding-leader" }, { args: { filePath: ".crewbeectxt/HANDOFF.md" } }), /Project Context workspace is private/);
-    await hooks["tool.execute.before"]({ tool: "grep", sessionID: "s", callID: "grep", agent: "coding-leader" }, { args: { pattern: [".", "crewbeectxt"].join(""), include: "*.md" } });
-    await hooks["tool.execute.before"]({ tool: "apply_patch", sessionID: "s", callID: "patch", agent: "coding-leader" }, { args: { patchText: `Docs mention ${[".", "crewbeectxt"].join("")} without reading it.` } });
-    await hooks["tool.execute.before"]({ tool: "read", sessionID: "s", callID: "c", agent: "project-context-maintainer" }, { args: { filePath: ".crewbeectxt/HANDOFF.md" } });
-    const redacted = { result: { ".crewbeectxt/HANDOFF.md": "listed .crewbeectxt/HANDOFF.md and src/index.ts" } };
+    await assert.rejects(() => hooks["tool.execute.before"]({ tool: "read", sessionID: "s", callID: "c", agent: "coding-leader" }, { args: { filePath: `${CONTEXT_DIR}/HANDOFF.md` } }), /Project Context workspace is private/);
+    await hooks["tool.execute.before"]({ tool: "grep", sessionID: "s", callID: "grep", agent: "coding-leader" }, { args: { pattern: CONTEXT_DIR, include: "*.md" } });
+    await hooks["tool.execute.before"]({ tool: "apply_patch", sessionID: "s", callID: "patch", agent: "coding-leader" }, { args: { patchText: `Docs mention ${CONTEXT_DIR} without reading it.` } });
+    await hooks["tool.execute.before"]({ tool: "read", sessionID: "s", callID: "c", agent: "project-context-maintainer" }, { args: { filePath: `${CONTEXT_DIR}/HANDOFF.md` } });
+    const redacted = { result: { [`${CONTEXT_DIR}/HANDOFF.md`]: `listed ${CONTEXT_DIR}/HANDOFF.md and src/index.ts` } };
     await hooks["tool.execute.after"]({ tool: "bash", sessionID: "s", callID: "c", agent: "coding-leader", args: { command: "npm test" } }, redacted);
     assert.deepEqual(redacted.result, { "[project-context-private]": "listed [project-context-private] and src/index.ts" });
 
@@ -221,20 +223,20 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     assert.equal(visiblePrepare.parts.length, 1);
     assert.match(visiblePrepare.parts[0].text, /Project Context prepared · compact · revision/);
     assert.equal(visiblePrepare.parts[0].synthetic, true);
-    assert.doesNotMatch(visiblePrepare.parts[0].text, /.crewbeectxt|STATE\.yaml|HANDOFF\.md|PLAN\.yaml|observations/);
+    assert.doesNotMatch(visiblePrepare.parts[0].text, /\.crewbee\/\.prjctxt|STATE\.yaml|HANDOFF\.md|PLAN\.yaml|observations/);
     const rootSystem = { system: [] };
     await hooks["experimental.chat.system.transform"]({ sessionID: "parent-session", model: {} }, rootSystem);
     await new Promise((resolve) => setTimeout(resolve, 10));
     assert.equal(rootSystem.system.length, 1);
     assert.match(rootSystem.system[0], /Project Context is prepared automatically/);
     assert.match(rootSystem.system[0], /Project Context Brief/);
-    assert.doesNotMatch(rootSystem.system[0], /.crewbeectxt|STATE\.yaml|HANDOFF\.md|PLAN\.yaml|observations/);
+    assert.doesNotMatch(rootSystem.system[0], /\.crewbee\/\.prjctxt|STATE\.yaml|HANDOFF\.md|PLAN\.yaml|observations/);
     assert.equal(promptCalls, 0);
     const followupSystem = { system: [] };
     await hooks["experimental.chat.system.transform"]({ sessionID: "parent-session", model: {} }, followupSystem);
     assert.equal(followupSystem.system.length, 1);
     assert.doesNotMatch(followupSystem.system[0], /Project Context Brief/);
-    await writeFile(path.join(root, [".", "crewbeectxt"].join(""), "HANDOFF.md"), "# Handoff\n\nRevision changed.\n", "utf8");
+    await writeFile(contextPath(root, "HANDOFF.md"), "# Handoff\n\nRevision changed.\n", "utf8");
     const revisionSystem = { system: [] };
     await hooks["experimental.chat.system.transform"]({ sessionID: "parent-session", model: {} }, revisionSystem);
     assert.equal(revisionSystem.system.length, 1);
@@ -267,7 +269,7 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
       abort: new AbortController().signal,
       metadata() {}
     });
-    assert.doesNotMatch(searchOutput, /.crewbeectxt/);
+    assert.doesNotMatch(searchOutput, /\.crewbee\/\.prjctxt/);
     assert.equal(promptAsyncCalls, 1);
 
     await hooks["tool.execute.before"]({ tool: "bash", sessionID: "parent-session", callID: "test", agent: "coding-leader" }, { args: { command: "npm test" } });

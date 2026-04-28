@@ -4,7 +4,7 @@
 
 - Status: accepted
 - Context: The product is positioned as a CrewBee-native project context layer and needs one clear production context directory name.
-- Decision: Use `.crewbeectxt/` as the only production project context workspace directory. Do not implement directory migration as a product feature.
+- Decision: Use `.crewbee/.prjctxt/` as the only production project context workspace directory. Do not implement directory migration as a product feature.
 - Consequences:
   - Pros: Clear product identity, stable CrewBee detection target, less ambiguity with other agent tools.
   - Cons: Less generic naming for non-CrewBee users.
@@ -31,7 +31,7 @@
 
 - Status: accepted
 - Context: The repository needs both its own production project context and scaffold source documents for initializing other projects.
-- Decision: Keep this repository's live context in `.crewbeectxt/`, but store scaffold source documents under `templates/crewbeectxt-template/` so they are explicitly marked as templates during development.
+- Decision: Keep this repository's live context in `.crewbee/.prjctxt/`, but store scaffold source documents under `templates/prjctxt-template/` so they are explicitly marked as templates during development.
 - Consequences:
   - Pros: Avoids confusing source templates with production context workspaces.
   - Cons: Template paths differ from the generated runtime directory name.

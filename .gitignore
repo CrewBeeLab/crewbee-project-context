@@ -3,8 +3,8 @@ dist/
 coverage/
 .artifacts/
 .local/
-.crewbeectxt/cache/
-.crewbeectxt/tmp/
-.crewbeectxt/*.lock
+.crewbee/.prjctxt/cache/
+.crewbee/.prjctxt/tmp/
+.crewbee/.prjctxt/*.lock
 tmp/
 *.log

@@ -60,7 +60,7 @@ export class ContextCapsuleBuilder {
       "Current:",
       `- Project: ${projectName}`,
       `- Project ID: ${state.projectId ?? "unknown"}`,
-      `- Active step: ${state.activeStepId ?? "unknown"}${activeStepTitle ? ` — ${activeStepTitle}` : ""}`,
+      `- Active step: ${state.activeStepId ?? "unknown"}${activeStepTitle ? ` �?${activeStepTitle}` : ""}`,
       `- Status: ${state.runStatus ?? "unknown"}`,
       `- Last checkpoint: ${state.lastCheckpoint ?? "unknown"}`,
       `- Blockers: ${state.blockers.length > 0 ? state.blockers.join("; ") : "none"}`,
@@ -103,7 +103,7 @@ export class ContextCapsuleBuilder {
   }
 
   private sanitizePrivateWorkspaceText(text: string): string {
-    return text.replace(/`?\.crewbeectxt\/?`?/g, "private Project Context workspace");
+    return text.replace(/`?\.crewbee[\\/]\.prjctxt\/?`?/g, "private Project Context workspace");
   }
 
   private sectionBullets(markdown: string, headings: string[], limit: number): string[] {
@@ -183,7 +183,7 @@ export class ContextCapsuleBuilder {
 
   private stepTitle(block: string[]): string {
     const match = block.join("\n").match(/^\s+title:\s*(.+)$/m);
-    return match?.[1] ? ` — ${match[1].trim()}` : "";
+    return match?.[1] ? ` �?${match[1].trim()}` : "";
   }
 
   private stepStatus(block: string[]): string | null {

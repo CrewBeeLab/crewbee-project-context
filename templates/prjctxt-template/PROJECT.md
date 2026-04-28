@@ -15,4 +15,4 @@ Describe the project objective.
 ## Constraints
 
 - Follow the minimalism principle.
-- Do not store secrets in .crewbeectxt/.
+- Do not store secrets in .crewbee/.prjctxt/.

@@ -5,19 +5,19 @@ cycles:
     status: active
     steps:
       - id: S1
-        title: Initialize repository, docs, .crewbeectxt workspace, and minimal CLI/API skeleton
+        title: Initialize repository, docs, .crewbee/.prjctxt workspace, and minimal CLI/API skeleton
         status: completed
         acceptance:
           - package metadata exists for crewbee-project-context
-          - .crewbeectxt workspace exists and documents current project context
+          - .crewbee/.prjctxt workspace exists and documents current project context
           - human docs describe positioning, architecture, and CrewBee integration
           - diagnostics, tests, and build/typecheck commands are available
       - id: S2
         title: Implement scaffold init and doctor MVP
         status: completed
         acceptance:
-          - init can create .crewbeectxt in a target project
-          - .crewbeectxt is the only production context directory name
+          - init can create .crewbee/.prjctxt in a target project
+          - .crewbee/.prjctxt is the only production context directory name
           - doctor catches missing files and state/plan inconsistencies
       - id: S3
         title: Implement primer MVP
@@ -42,8 +42,8 @@ cycles:
         title: Implement minimal optional CrewBee integration bridge
         status: completed
         acceptance:
-          - CrewBee can use context tools when .crewbeectxt exists
-          - CrewBee behavior is unchanged when .crewbeectxt is absent or disabled
+          - CrewBee can use context tools when .crewbee/.prjctxt exists
+          - CrewBee behavior is unchanged when .crewbee/.prjctxt is absent or disabled
           - integration remains adapter/plugin level with no CrewBee Core coupling
           - tool surface is limited to prepare/search/finalize and does not expose project_context_read
       - id: S7
@@ -65,7 +65,7 @@ cycles:
           - plugin default export has an object with server() per OpenCode v1 plugin shape
           - system prompt transform injects only Runtime Rule plus compact Context Capsule
           - OpenCode tool map exposes only project_context_prepare, project_context_search, and project_context_finalize
-          - absent .crewbeectxt workspaces stay ephemeral until finalize includes material project progress
+          - absent .crewbee/.prjctxt workspaces stay ephemeral until finalize includes material project progress
           - no project_context_read or scaffold path menu is exposed to the main agent
       - id: S9
         title: Match CrewBee user-level plugin publish and install model
@@ -94,4 +94,4 @@ cycles:
           - OpenCode startup loads both crewbee and project-context plugins without plugin entrypoint errors
           - a CrewBee coding leader session sees only compact project context prompt material
           - prepare/search/finalize tools execute successfully from an OpenCode session
-          - empty finalize does not create .crewbeectxt while material finalize does
+          - empty finalize does not create .crewbee/.prjctxt while material finalize does

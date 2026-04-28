@@ -3,7 +3,7 @@
 ## System map
 
 ```text
-.crewbeectxt/ files
+.crewbee/.prjctxt/ files
   -> ProjectContextStore
   -> ContextIndexer
   -> ContextPrimerBuilder
@@ -17,7 +17,7 @@
 ## Module responsibilities
 
 - `src/core/`: constants, budgets, errors, shared types.
-- `src/workspace/`: `.crewbeectxt` paths, bootstrap, doctor, file-system reads and controlled writes.
+- `src/workspace/`: `.crewbee/.prjctxt` paths, bootstrap, doctor, file-system reads and controlled writes.
 - `src/indexer/`: lightweight extraction from state/plan/memory/handoff files.
 - `src/capsule/`: low-token Context Capsule / Task Context Brief rendering.
 - `src/maintainer/`: internal Context Maintainer service, search, safe patching, finalize handling.
@@ -28,7 +28,7 @@
 
 ## Key invariants
 
-- `.crewbeectxt/` is the product context directory.
+- `.crewbee/.prjctxt/` is the product context directory.
 - CrewBee Project Context can run standalone.
 - CrewBee integration remains optional.
 - Primer injection is compact; full docs are read on demand.

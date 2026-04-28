@@ -46,7 +46,7 @@ Not visible:
 
 ```text
 project_context_read
-.crewbeectxt file menu
+.crewbee/.prjctxt file menu
 project-context-maintainer prompt
 maintainer transcript/scaffold edits
 ```
@@ -120,7 +120,7 @@ On the first root-session prompt, `experimental.chat.system.transform` checks wh
 
 ## Automatic update
 
-The `event` hook listens for `session.idle` and `session.status` with `status.type === "idle"`. `chat.message` records explicit user context-update intent. `tool.execute.before` captures tool args by `sessionID + callID`; `tool.execute.after` consumes the captured call and records material signals such as file edits, verification commands, and search usage. On idle, auto update scans recent session messages, evaluates every turn, skips no-material turns, and starts a hidden maintainer update job only when durable project information likely changed.
+The `event` hook listens for `session.idle` and `session.status` with `status.type === "idle"`. `chat.message` records explicit user context-update intent. `tool.execute.before` captures tool args by `sessionID + callID`; `tool.execute.after` consumes the captured call and records material signals such as file edits, verification commands, and search usage. On every idle turn, auto update scans recent session messages and records an `evaluated` runtime event. No-material turns are evaluated and skipped; durable project changes start a hidden maintainer update job.
 
 Update is launched by creating a parent-linked hidden maintainer child session and prompting `project-context-maintainer` there. The main Agent never receives `project_context_update` as a tool and cannot directly Task the maintainer. After the maintainer job completes or fails, Project Context appends a synthetic `session.prompt(noReply: true)` status message to the parent session, for example `Project Context update · completed · maintainer session ... ↗`. The next auto prepare reads the updated context.
 
@@ -143,7 +143,7 @@ The parent session receives only a compact status message, not the maintainer tr
 
 - No compaction hook.
 - No project_context_read.
-- No visible prepare/update/finalize tools.
+- No visible prepare/update tools.
 - No visible maintainer agent.
 - No CrewBee Core contract change.
 - No modification to primary agent edit/write permissions.
