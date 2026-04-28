@@ -93,7 +93,7 @@ async function inspectPrivatePathGuard(hooks: Record<string, unknown>): Promise<
   const guard = hooks["tool.execute.before"];
   if (typeof guard !== "function") return false;
   try {
-    await guard({ tool: "read", sessionID: "doctor", callID: "doctor", agent: "coding-leader" }, { args: { filePath: ".crewbeectxt/HANDOFF.md" } });
+    await guard({ tool: "read", sessionID: "doctor", callID: "doctor", agent: "coding-leader" }, { args: { filePath: ".crewbee/.prjctxt/HANDOFF.md" } });
     return false;
   } catch (error) {
     return error instanceof Error && error.message.includes("Project Context workspace is private");
@@ -103,7 +103,7 @@ async function inspectPrivatePathGuard(hooks: Record<string, unknown>): Promise<
 async function inspectToolOutputRedactor(hooks: Record<string, unknown>): Promise<boolean> {
   const redactor = hooks["tool.execute.after"];
   if (typeof redactor !== "function") return false;
-  const output = { result: "visible .crewbeectxt/HANDOFF.md" };
+  const output = { result: "visible .crewbee/.prjctxt/HANDOFF.md" };
   await redactor({ tool: "bash", sessionID: "doctor", callID: "doctor", agent: "coding-leader" }, output);
   return output.result === "visible [project-context-private]";
 }

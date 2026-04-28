@@ -1,0 +1,20 @@
+project_id: crewbee-project-context
+run_status: running
+active_cycle: C1
+active_step_id: S6
+last_checkpoint: CP-0002
+blockers:
+  - Working tree contains broad unrelated edits/deletions outside the latest runtime payload cleanup/context-maintenance work; review scope carefully before commit/release.
+next_actions:
+  - action: Review current working-tree diff and separate the isolated-update/terminal-session/payload-cleanup fix from older unrelated changes before committing.
+    owner: active-agent
+    source: update-job pcu_moizikmg_8gx0pryb
+  - action: If preparing a release/commit, rerun npm run build, npm test, npm run typecheck, npm run diagnostics, and npm run doctor serially after final diff is settled.
+    owner: active-agent
+    source: update-job pcu_moizikmg_8gx0pryb
+  - action: Runtime-test that isolated maintainer updates do not return to the main agent LLM, terminal-marked sessions do not re-trigger updates on non-user events, and payload cleanup still occurs on success/failure.
+    owner: active-agent
+    source: update-job pcu_moizikmg_8gx0pryb
+  - action: Ensure any remaining update invocations use the isolated maintainer subsession path rather than explicit parent/main-agent maintainer tasks.
+    owner: active-agent
+    source: update-job pcu_moizikmg_8gx0pryb

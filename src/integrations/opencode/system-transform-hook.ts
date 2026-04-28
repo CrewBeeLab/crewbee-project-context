@@ -2,9 +2,10 @@ import { stat } from "node:fs/promises";
 import path from "node:path";
 import { DEFAULT_CONTEXT_DIR, SEARCHABLE_CONTEXT_FILES } from "../../core/constants.js";
 import { ProjectContextService } from "../../service/project-context-service.js";
-import { MaintainerSubsessionRunner } from "./subsession-runner.js";
+import { hasSessionMethod, sessionGet } from "./client-adapter.js";
 import type { OpenCodeClientLike } from "./types.js";
 import { writeRuntimeLog } from "./runtime-log.js";
+import { redactPrivateContextPaths } from "./visibility.js";
 
 const RUNTIME_RULE = [
   "Project Context is prepared automatically when needed.",
@@ -13,13 +14,17 @@ const RUNTIME_RULE = [
 
 interface PreparedSessionState {
   revision: string;
-  visibleRevision?: string;
-  briefText?: string;
-  systemBriefPending?: boolean;
+  visibleRevision?: string | undefined;
+  visibleSummaryPending?: string | undefined;
+  visibleFlushInFlight?: boolean | undefined;
+  briefText?: string | undefined;
+  systemBriefPending?: boolean | undefined;
 }
 
 const preparedSessions = new Map<string, PreparedSessionState>();
-const initializationJobs = new Map<string, Promise<void>>();
+const PREPARE_STATUS_TITLE = "Project Context Prepare Summary";
+const RUNTIME_VISIBLE_TEXT = /Project Context (Prepare Summary|prepared) · compact · revision/i;
+let partCounter = 0;
 
 function projectName(projectRoot: string): string {
   return path.basename(projectRoot) || "Project";
@@ -50,20 +55,49 @@ function readParentID(session: unknown): string | undefined {
   return undefined;
 }
 
-function readString(value: unknown, key: string): string | undefined {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
-  const record = value as Record<string, unknown>;
-  const direct = record[key];
-  if (typeof direct === "string") return direct;
-  const info = record.info;
-  if (typeof info === "object" && info !== null && !Array.isArray(info)) return readString(info, key);
+function readSessionDirectory(session: unknown): string | undefined {
+  if (typeof session !== "object" || session === null || Array.isArray(session)) return undefined;
+  const record = session as Record<string, unknown>;
+  if (typeof record.directory === "string") return record.directory;
+  const data = record.data;
+  if (typeof data === "object" && data !== null && !Array.isArray(data)) return readSessionDirectory(data);
   return undefined;
 }
 
-function partID(): string {
-  const time = BigInt(Date.now()) * 0x1000n + BigInt(Math.floor(Math.random() * 0x1000));
-  const hex = time.toString(16).padStart(12, "0").slice(-12);
-  return `prt_${hex}${Math.random().toString(36).slice(2, 16).padEnd(14, "0")}`;
+function sameDirectory(left: string, right: string): boolean {
+  return path.resolve(left).toLowerCase() === path.resolve(right).toLowerCase();
+}
+
+function readEventType(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const type = (value as Record<string, unknown>).type;
+  return typeof type === "string" ? type : undefined;
+}
+
+function readSessionID(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const properties = (value as Record<string, unknown>).properties;
+  if (typeof properties === "object" && properties !== null && !Array.isArray(properties)) {
+    const record = properties as Record<string, unknown>;
+    if (typeof record.sessionID === "string") return record.sessionID;
+    if (typeof record.info === "object" && record.info !== null && !Array.isArray(record.info)) {
+      const nested = record.info as Record<string, unknown>;
+      if (typeof nested.sessionID === "string") return nested.sessionID;
+      if (typeof nested.id === "string") return nested.id;
+    }
+  }
+  const sessionID = (value as Record<string, unknown>).sessionID;
+  return typeof sessionID === "string" ? sessionID : undefined;
+}
+
+function readStatusType(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const properties = (value as Record<string, unknown>).properties;
+  if (typeof properties !== "object" || properties === null || Array.isArray(properties)) return undefined;
+  const status = (properties as Record<string, unknown>).status;
+  if (typeof status !== "object" || status === null || Array.isArray(status)) return undefined;
+  const type = (status as Record<string, unknown>).type;
+  return typeof type === "string" ? type : undefined;
 }
 
 function revisionLabel(revision: string): string {
@@ -75,14 +109,75 @@ function revisionLabel(revision: string): string {
   return (hash >>> 0).toString(16).padStart(8, "0").slice(0, 7);
 }
 
+function createPartID(): string {
+  partCounter = (partCounter + 1) % 0xfff;
+  const encoded = (BigInt(Date.now()) * 0x1000n + BigInt(partCounter)).toString(16).padStart(12, "0").slice(-12);
+  const suffix = Math.random().toString(36).slice(2, 16).padEnd(14, "0");
+  return `prt_${encoded}${suffix}`;
+}
+
 function visiblePrepareSummary(input: { revision: string; estimatedTokens: number; warnings: string[]; briefText: string }): string {
   const lines = input.briefText.split("\n").map((line) => line.trim()).filter(Boolean);
   const bullets = lines.filter((line) => line.startsWith("-")).slice(0, 3);
-  return [
-    `Project Context prepared · compact · revision ${revisionLabel(input.revision)}`,
+  const summary = [
+    `${PREPARE_STATUS_TITLE} · compact · revision ${revisionLabel(input.revision)}`,
     "",
     ...(bullets.length > 0 ? bullets : [`- Brief injected for the main Agent.`, `- Estimated budget: ${input.estimatedTokens} tokens.`, `- Warnings: ${input.warnings.length}`])
-  ].join("\n").replace(/\.crewbeectxt|STATE\.yaml|HANDOFF\.md|PLAN\.yaml|observations/gi, "[project-context-private]");
+  ].join("\n");
+  return redactPrivateContextPaths(summary)
+    .replace(/STATE\.yaml|HANDOFF\.md|PLAN\.yaml|MEMORY_INDEX\.md|DECISIONS\.md|REFERENCES\.md|observations/gi, "[project-context-private]");
+}
+
+type PrepareStatusSurface = "tui.toast" | "chat.message.synthetic" | "tui.toast+chat.message.synthetic";
+
+async function showPrepareStatus(input: { client: OpenCodeClientLike; summary: string }): Promise<PrepareStatusSurface | undefined> {
+  const toast = {
+    title: PREPARE_STATUS_TITLE,
+    message: input.summary,
+    variant: "info" as const,
+    duration: 8000
+  };
+  if (typeof input.client.tui?.showToast === "function") {
+    await input.client.tui.showToast({ body: toast });
+    return "tui.toast";
+  }
+  if (typeof input.client.tui?.publish === "function") {
+    await input.client.tui.publish({ type: "tui.toast.show", properties: toast });
+    return "tui.toast";
+  }
+  return undefined;
+}
+
+function readMessageID(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (typeof record.messageID === "string") return record.messageID;
+  if (typeof record.id === "string") return record.id;
+  for (const key of ["message", "info", "properties"]) {
+    const nested = record[key];
+    if (typeof nested === "object" && nested !== null && !Array.isArray(nested)) {
+      const id = readMessageID(nested);
+      if (id !== undefined) return id;
+    }
+  }
+  return undefined;
+}
+
+function appendPrepareSummaryPart(input: { sessionID: string; messageID?: string | undefined; output: { message?: unknown; parts?: unknown[] }; summary: string }): boolean {
+  const messageID = input.messageID ?? readMessageID(input.output.message);
+  if (!messageID) return false;
+  if (!Array.isArray(input.output.parts)) input.output.parts = [];
+  input.output.parts.push({
+    id: createPartID(),
+    sessionID: input.sessionID,
+    messageID,
+    type: "text",
+    text: input.summary,
+    synthetic: true,
+    ignored: true,
+    metadata: { kind: "project_context_prepare", title: PREPARE_STATUS_TITLE }
+  });
+  return true;
 }
 
 async function shouldInjectProjectContext(input: { sessionID?: string }, client: OpenCodeClientLike, projectRoot: string): Promise<boolean> {
@@ -90,14 +185,19 @@ async function shouldInjectProjectContext(input: { sessionID?: string }, client:
     await writeRuntimeLog(projectRoot, { component: "system-transform", event: "skip-no-session" });
     return false;
   }
-  if (!client.session.get) {
+  if (!hasSessionMethod(client, "get")) {
     await writeRuntimeLog(projectRoot, { component: "system-transform", event: "skip-no-session-get", sessionID: input.sessionID });
     return false;
   }
   try {
     await writeRuntimeLog(projectRoot, { component: "system-transform", event: "session-get-start", sessionID: input.sessionID });
-    const session = await client.session.get({ path: { id: input.sessionID }, query: { directory: projectRoot, workspace: projectRoot } });
+    const session = await sessionGet(client, { sessionID: input.sessionID, query: { directory: projectRoot, workspace: projectRoot } });
     const parentID = readParentID(session);
+    const directory = readSessionDirectory(session);
+    if (directory !== undefined && !sameDirectory(directory, projectRoot)) {
+      await writeRuntimeLog(projectRoot, { component: "system-transform", event: "skip-foreign-session", sessionID: input.sessionID, details: { directory } });
+      return false;
+    }
     await writeRuntimeLog(projectRoot, { component: "system-transform", event: parentID === undefined ? "root-session" : "skip-subsession", sessionID: input.sessionID, details: parentID === undefined ? undefined : { parentID } });
     return parentID === undefined;
   } catch (error) {
@@ -106,44 +206,75 @@ async function shouldInjectProjectContext(input: { sessionID?: string }, client:
   }
 }
 
-async function ensureProjectContextInitialized(input: { service: ProjectContextService; client: OpenCodeClientLike; projectRoot: string; sessionID?: string; onMaintainerSessionCreated?: (sessionID: string) => void }): Promise<void> {
+async function ensureProjectContextInitialized(input: { service: ProjectContextService; projectRoot: string; sessionID?: string }): Promise<void> {
   const detection = await input.service.detect();
   const validation = detection.found ? await input.service.validateContext() : { ok: false, errors: ["missing context workspace"], warnings: [], checked: [] };
   const missingScaffold = !detection.found || validation.errors.some((error) => error.startsWith("Missing required context file:"));
   if (!missingScaffold) return;
   const init = await input.service.initProjectContext({ projectId: projectId(input.projectRoot), projectName: projectName(input.projectRoot) });
   await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "auto-init-scaffold", sessionID: input.sessionID, details: { created: init.created.length, skipped: init.skipped.length, errors: validation.errors.length } });
-  if (!input.sessionID || initializationJobs.has(input.projectRoot)) return;
-  const runner = new MaintainerSubsessionRunner(input.client);
-  const runOptions = input.onMaintainerSessionCreated
-    ? { timeoutMs: 180_000, onSessionCreated: input.onMaintainerSessionCreated }
-    : { timeoutMs: 180_000 };
-  const job = runner.run({
-    kind: "initialize",
-    title: "Project Context Initialize",
-    callerSessionID: input.sessionID,
-    callerAgent: "project-context-runtime",
-    projectRoot: input.projectRoot,
-    goal: "Initialize Project Context for this project on first startup by reading docs, architecture/design notes, package metadata, tests, and main source implementation.",
-    payload: { scaffold_created: init.created, scaffold_skipped: init.skipped }
-  }, runOptions).then(async (result) => {
-    await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: result.ok ? "auto-init-maintainer-completed" : "auto-init-maintainer-failed", sessionID: input.sessionID, error: result.ok ? undefined : result.error });
-  }).finally(() => {
-    initializationJobs.delete(input.projectRoot);
-  });
-  initializationJobs.set(input.projectRoot, job);
-  void job;
+}
+
+function hasPrepareMetadata(value: unknown): boolean {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  const metadata = record.metadata;
+  if (typeof metadata === "object" && metadata !== null && !Array.isArray(metadata) && (metadata as Record<string, unknown>).kind === "project_context_prepare") return true;
+  return Object.values(record).some(hasPrepareMetadata);
+}
+
+function collectText(value: unknown, output: string[]): void {
+  if (typeof value === "string") {
+    output.push(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectText(item, output);
+    return;
+  }
+  if (typeof value !== "object" || value === null) return;
+  const record = value as Record<string, unknown>;
+  for (const key of ["text", "content", "output"]) {
+    if (typeof record[key] === "string") output.push(record[key]);
+  }
+  for (const key of ["parts", "message", "data", "properties", "info"]) collectText(record[key], output);
+}
+
+function isPrepareRuntimeMessage(message: { info?: unknown; parts?: unknown[] } | { message?: unknown; parts?: unknown[] }): boolean {
+  if (hasPrepareMetadata(message)) return true;
+  const chunks: string[] = [];
+  collectText(message, chunks);
+  return RUNTIME_VISIBLE_TEXT.test(chunks.join("\n"));
 }
 
 export function createProjectContextSystemTransformHook(input: { service: ProjectContextService; client: OpenCodeClientLike; projectRoot: string; onMaintainerSessionCreated?: (sessionID: string) => void }) {
+  const flushVisiblePrepare = async (sessionID: string, mode: "chat-message" | "idle", output?: { message?: unknown; parts?: unknown[] }, messageID?: string): Promise<void> => {
+    const state = preparedSessions.get(sessionID);
+    if (!state?.visibleSummaryPending || state.visibleFlushInFlight === true) return;
+    const summary = state.visibleSummaryPending;
+    preparedSessions.set(sessionID, { ...state, visibleSummaryPending: undefined, visibleFlushInFlight: true });
+    try {
+      const appendedChatPart = output !== undefined ? appendPrepareSummaryPart({ sessionID, messageID, output, summary }) : false;
+      let surface: PrepareStatusSurface | undefined = appendedChatPart ? "chat.message.synthetic" : undefined;
+      try {
+        const toastSurface = await showPrepareStatus({ client: input.client, summary });
+        if (toastSurface === "tui.toast") surface = surface === "chat.message.synthetic" ? "tui.toast+chat.message.synthetic" : "tui.toast";
+      } catch (error) {
+        await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "visible-prepare-toast-failed", sessionID, error: error instanceof Error ? error.message : String(error) });
+      }
+      preparedSessions.set(sessionID, { ...state, visibleRevision: state.revision, visibleSummaryPending: undefined, visibleFlushInFlight: false });
+      await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: surface === undefined ? "visible-prepare-unavailable" : "visible-prepare-status", sessionID, ...(surface !== undefined ? { details: { mode, revision: revisionLabel(state.revision), surface } } : { error: "OpenCode client does not expose tui.showToast/tui.publish and chat.message output was unavailable for assistant-side prepare status." }) });
+    } catch (error) {
+      preparedSessions.set(sessionID, { ...state, visibleSummaryPending: summary, visibleFlushInFlight: false });
+      await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "visible-prepare-failed", sessionID, error: error instanceof Error ? error.message : String(error) });
+    }
+  };
   const hook = async (hookInput: { sessionID?: string; model: unknown }, output: { system: string[] }): Promise<void> => {
     if (!(await shouldInjectProjectContext(hookInput, input.client, input.projectRoot))) return;
     await ensureProjectContextInitialized({
       service: input.service,
-      client: input.client,
       projectRoot: input.projectRoot,
-      ...(hookInput.sessionID ? { sessionID: hookInput.sessionID } : {}),
-      ...(input.onMaintainerSessionCreated ? { onMaintainerSessionCreated: input.onMaintainerSessionCreated } : {})
+      ...(hookInput.sessionID ? { sessionID: hookInput.sessionID } : {})
     });
     const sessionID = hookInput.sessionID;
     const revision = await contextRevision(input.projectRoot);
@@ -157,51 +288,64 @@ export function createProjectContextSystemTransformHook(input: { service: Projec
       return;
     }
     const brief = await input.service.prepareContext({ goal: "Prepare automatic project context for the current user task.", budget: "compact" });
-    if (sessionID !== undefined) preparedSessions.set(sessionID, { ...previous, revision, briefText: brief.text, systemBriefPending: false });
+    if (sessionID !== undefined) {
+      const summary = visiblePrepareSummary({ revision, estimatedTokens: brief.estimatedTokens, warnings: brief.warnings, briefText: brief.text });
+      preparedSessions.set(sessionID, {
+        ...previous,
+        revision,
+        briefText: brief.text,
+        systemBriefPending: false,
+        ...(previous?.visibleRevision === revision ? {} : { visibleSummaryPending: summary })
+      });
+    }
     output.system.push(`${RUNTIME_RULE}\n\n${brief.text}`);
     await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "auto-prepare", sessionID: hookInput.sessionID, details: { estimatedTokens: brief.estimatedTokens, warnings: brief.warnings.length } });
   };
-  hook.visibleChatMessage = async (hookInput: { sessionID?: string; agent?: string; model?: unknown }, output: { message?: unknown; parts?: unknown[] }): Promise<void> => {
+  hook.visibleChatMessage = async (hookInput: { sessionID?: string; messageID?: string; agent?: string; model?: unknown }, output: { message?: unknown; parts?: unknown[] }): Promise<void> => {
+    if (isPrepareRuntimeMessage(output)) return;
     if (!(await shouldInjectProjectContext(hookInput, input.client, input.projectRoot))) return;
     await ensureProjectContextInitialized({
       service: input.service,
-      client: input.client,
       projectRoot: input.projectRoot,
-      ...(hookInput.sessionID ? { sessionID: hookInput.sessionID } : {}),
-      ...(input.onMaintainerSessionCreated ? { onMaintainerSessionCreated: input.onMaintainerSessionCreated } : {})
+      ...(hookInput.sessionID ? { sessionID: hookInput.sessionID } : {})
     });
     const sessionID = hookInput.sessionID;
     if (!sessionID) return;
     const revision = await contextRevision(input.projectRoot);
     const previous = preparedSessions.get(sessionID);
-    if (previous?.visibleRevision === revision) return;
-    const brief = previous?.revision === revision && previous.briefText !== undefined
-      ? { text: previous.briefText, estimatedTokens: 0, warnings: [] }
-      : await input.service.prepareContext({ goal: "Prepare automatic project context for the current user task.", budget: "compact" });
-    preparedSessions.set(sessionID, {
-      ...previous,
-      revision,
-      visibleRevision: revision,
-      briefText: brief.text,
-      systemBriefPending: previous?.revision === revision ? previous.systemBriefPending === true : true
-    });
-    const messageID = readString(output.message, "id") ?? readString(output.parts?.[0], "messageID");
-    const partSessionID = readString(output.message, "sessionID") ?? readString(output.parts?.[0], "sessionID") ?? sessionID;
-    if (!messageID) {
-      await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "visible-prepare-failed", sessionID, error: "OpenCode chat.message output did not expose a message id." });
-      return;
+    if (previous?.visibleRevision === revision || previous?.visibleFlushInFlight === true) return;
+    if (previous?.visibleSummaryPending === undefined) {
+      const brief = previous?.revision === revision && previous.briefText !== undefined
+        ? { text: previous.briefText, estimatedTokens: 0, warnings: [] }
+        : await input.service.prepareContext({ goal: "Prepare automatic project context for the current user task.", budget: "compact" });
+      const summary = visiblePrepareSummary({ revision, estimatedTokens: brief.estimatedTokens, warnings: brief.warnings, briefText: brief.text });
+      preparedSessions.set(sessionID, {
+        ...previous,
+        revision,
+        briefText: brief.text,
+        visibleSummaryPending: summary,
+        systemBriefPending: previous?.revision === revision ? previous.systemBriefPending === true : true
+      });
+      await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "visible-prepare-pending", sessionID, details: { estimatedTokens: brief.estimatedTokens, warnings: brief.warnings.length } });
     }
-    output.parts ??= [];
-    output.parts.push({
-      id: partID(),
-      sessionID: partSessionID,
-      messageID,
-      type: "text",
-      synthetic: true,
-      metadata: { kind: "project_context_prepare", revision: revisionLabel(revision) },
-      text: visiblePrepareSummary({ revision, estimatedTokens: brief.estimatedTokens, warnings: brief.warnings, briefText: brief.text })
+    await flushVisiblePrepare(sessionID, "chat-message", output, hookInput.messageID);
+  };
+  hook.handleEvent = async (eventInput: { event: unknown }): Promise<void> => {
+    const type = readEventType(eventInput.event);
+    if (type !== "session.idle" && !(type === "session.status" && readStatusType(eventInput.event) === "idle")) return;
+    const sessionID = readSessionID(eventInput.event);
+    if (!sessionID) return;
+    if (!(await shouldInjectProjectContext({ sessionID }, input.client, input.projectRoot))) return;
+    await flushVisiblePrepare(sessionID, "idle");
+  };
+  hook.transformMessages = (output: { messages: { info?: unknown; parts?: unknown[] }[] }): void => {
+    output.messages = output.messages.flatMap((message) => {
+      const originalPrepareMessage = isPrepareRuntimeMessage(message);
+      if (!Array.isArray(message.parts)) return originalPrepareMessage ? [] : [message];
+      const filtered = { ...message, parts: message.parts.filter((part) => !isPrepareRuntimeMessage({ parts: [part] })) };
+      if (filtered.parts.length === 0 && originalPrepareMessage) return [];
+      return [filtered];
     });
-    await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "visible-prepare-message", sessionID, details: { estimatedTokens: brief.estimatedTokens, warnings: brief.warnings.length } });
   };
   return hook;
 }

@@ -2,7 +2,7 @@ export interface DetectionResult {
   found: boolean;
   root: string;
   contextDir: string | null;
-  contextDirName: ".crewbeectxt";
+  contextDirName: ".crewbee/.prjctxt";
   reason: string;
 }
 

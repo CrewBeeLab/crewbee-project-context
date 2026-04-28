@@ -1,4 +1,4 @@
-import { DEFAULT_CONTEXT_DIR } from "../../core/constants.js";
+import { DEFAULT_CONTEXT_DIR, PRIVATE_RUNTIME_CONTEXT_DIR } from "../../core/constants.js";
 import { buildMaintainerPrompt, PROJECT_CONTEXT_MAINTAINER_AGENT_ID } from "./maintainer-prompt.js";
 import type { OpenCodeAgentConfig, OpenCodeConfigLike, PermissionAction, PermissionRule } from "./types.js";
 
@@ -31,11 +31,11 @@ function createMaintainerAgent(): OpenCodeAgentConfig {
     description: "Internal project context maintainer. Invoked only by the Project Context runtime.",
     prompt: buildMaintainerPrompt(),
     permission: {
-      read: { "*": "allow", "*.env": "deny", "*.env.*": "deny" },
+      read: { "*": "allow", "*.env": "deny", "*.env.*": "deny", [`${PRIVATE_RUNTIME_CONTEXT_DIR}/cache/update-jobs/**`]: "allow" },
       glob: "allow",
       grep: "allow",
       edit: { "*": "deny", [`${DEFAULT_CONTEXT_DIR}/**`]: "allow" },
-      bash: { "*": "deny", "git status *": "allow", "git diff *": "allow", "git log *": "allow" },
+      bash: { "*": "deny", "git status *": "allow", "git diff *": "allow", "git log *": "allow", "npm run doctor": "allow", "npm run doctor *": "allow" },
       webfetch: "deny",
       websearch: "deny",
       task: "deny",
@@ -70,7 +70,7 @@ function patchWatcherIgnore(config: OpenCodeConfigLike): void {
     ? { ...(config.watcher as Record<string, unknown>) }
     : {};
   const existingIgnore = Array.isArray(watcher.ignore) ? watcher.ignore : [];
-  const additions = [".crewbeectxt/cache/**", ".crewbeectxt/tmp/**", ".crewbeectxt/*.lock"];
+  const additions = [`${DEFAULT_CONTEXT_DIR}/cache/**`, `${DEFAULT_CONTEXT_DIR}/tmp/**`, `${DEFAULT_CONTEXT_DIR}/*.lock`, `${PRIVATE_RUNTIME_CONTEXT_DIR}/cache/**`, `${PRIVATE_RUNTIME_CONTEXT_DIR}/tmp/**`, `${PRIVATE_RUNTIME_CONTEXT_DIR}/*.lock`];
   watcher.ignore = [...existingIgnore, ...additions.filter((entry) => !existingIgnore.includes(entry))];
   config.watcher = watcher;
 }

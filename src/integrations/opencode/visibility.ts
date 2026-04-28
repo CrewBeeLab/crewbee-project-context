@@ -1,19 +1,20 @@
-import { DEFAULT_CONTEXT_DIR } from "../../core/constants.js";
+import { DEFAULT_CONTEXT_DIR, LEGACY_CONTEXT_DIR, PRIVATE_RUNTIME_CONTEXT_DIR } from "../../core/constants.js";
 import { PROJECT_CONTEXT_MAINTAINER_AGENT_ID } from "./maintainer-prompt.js";
 
 export const PRIVATE_CONTEXT_REDACTION = "[project-context-private]";
 
-const PRIVATE_CONTEXT_PATTERN = new RegExp(`${escapeRegExp(DEFAULT_CONTEXT_DIR)}(?:[\\\\/][^\\s\"'\`<>)]*)?`, "g");
+const PRIVATE_CONTEXT_DIRS = [...new Set([DEFAULT_CONTEXT_DIR, PRIVATE_RUNTIME_CONTEXT_DIR, LEGACY_CONTEXT_DIR])] as const;
+const PRIVATE_CONTEXT_PATTERN = new RegExp(`(?:${PRIVATE_CONTEXT_DIRS.map((dir) => escapeRegExp(dir).replaceAll("/", "[\\\\/]")).join("|")})(?:[\\\\/][^\\s\"'\`<>)]*)?`, "g");
 
 export function isProjectContextMaintainer(agent?: string): boolean {
   return agent === PROJECT_CONTEXT_MAINTAINER_AGENT_ID;
 }
 
 export function containsPrivateContextPath(value: unknown): boolean {
-  if (typeof value === "string") return value.includes(DEFAULT_CONTEXT_DIR);
+  if (typeof value === "string") return PRIVATE_CONTEXT_DIRS.some((dir) => normalizedIncludes(value, dir));
   if (Array.isArray(value)) return value.some(containsPrivateContextPath);
   if (value && typeof value === "object") {
-    return Object.entries(value).some(([key, item]) => key.includes(DEFAULT_CONTEXT_DIR) || containsPrivateContextPath(item));
+    return Object.entries(value).some(([key, item]) => PRIVATE_CONTEXT_DIRS.some((dir) => normalizedIncludes(key, dir)) || containsPrivateContextPath(item));
   }
   return false;
 }
@@ -23,7 +24,7 @@ export function containsPrivateContextAccess(value: unknown): boolean {
 }
 
 function containsPrivateContextAccessAtKey(key: string | undefined, value: unknown): boolean {
-  if (typeof value === "string") return isPathLikeKey(key) && value.includes(DEFAULT_CONTEXT_DIR);
+  if (typeof value === "string") return isPathLikeKey(key) && PRIVATE_CONTEXT_DIRS.some((dir) => normalizedIncludes(value, dir));
   if (Array.isArray(value)) return value.some((item) => containsPrivateContextAccessAtKey(key, item));
   if (value && typeof value === "object") {
     return Object.entries(value).some(([itemKey, item]) => containsPrivateContextAccessAtKey(itemKey, item));
@@ -51,4 +52,8 @@ export function redactPrivateContextPathsDeep(value: unknown): unknown {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizedIncludes(value: string, needle: string): boolean {
+  return value.replaceAll("\\", "/").includes(needle);
 }

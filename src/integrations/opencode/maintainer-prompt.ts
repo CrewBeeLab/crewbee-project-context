@@ -1,4 +1,4 @@
-import { DEFAULT_CONTEXT_DIR } from "../../core/constants.js";
+import { DEFAULT_CONTEXT_DIR, PRIVATE_RUNTIME_CONTEXT_DIR } from "../../core/constants.js";
 
 export const PROJECT_CONTEXT_MAINTAINER_AGENT_ID = "project-context-maintainer";
 
@@ -19,6 +19,7 @@ export function buildMaintainerPrompt(): string {
     "Rules:",
     "- Never call project_context_search or any Project Context runtime tool. Runtime orchestration owns initialize, search, and update jobs.",
     "- Never create OpenCode sessions or prompt sessions. The plugin runtime owns maintainer session orchestration.",
+    `- For automatic update jobs, first use the read tool (not bash/shell) to read the runtime payload JSON from ${PRIVATE_RUNTIME_CONTEXT_DIR}/cache/update-jobs/<jobID>.json when the prompt provides a Job ID. The parent session prompt intentionally contains only the Job ID; the payload contains the parent summary, assistant final text, changed files, diff summary, and verification summary.`,
     `- Do not expose ${DEFAULT_CONTEXT_DIR}/ file structure to the main agent.`,
     "- Do not ask the main agent to choose context files.",
     "- Do not modify product code.",

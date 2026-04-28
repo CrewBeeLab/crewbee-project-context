@@ -1,3 +1,4 @@
+import { hasSessionMethod, sessionAbort, sessionCreate, sessionMessages, sessionPromptAsync, sessionStatus } from "./client-adapter.js";
 import { PROJECT_CONTEXT_MAINTAINER_AGENT_ID } from "./maintainer-prompt.js";
 import type { OpenCodeClientLike } from "./types.js";
 import { writeRuntimeLog } from "./runtime-log.js";
@@ -93,9 +94,16 @@ function readString(value: unknown, key: string): string | undefined {
   const direct = record[key];
   if (typeof direct === "string") return direct;
   const data = record.data;
-  if (typeof data !== "object" || data === null || Array.isArray(data)) return undefined;
-  const nested = (data as Record<string, unknown>)[key];
-  return typeof nested === "string" ? nested : undefined;
+  if (typeof data === "object" && data !== null && !Array.isArray(data)) {
+    const nested = (data as Record<string, unknown>)[key];
+    if (typeof nested === "string") return nested;
+  }
+  const info = record.info;
+  if (typeof info === "object" && info !== null && !Array.isArray(info)) {
+    const nested = (info as Record<string, unknown>)[key];
+    if (typeof nested === "string") return nested;
+  }
+  return undefined;
 }
 
 function readMessageRole(value: unknown): string | undefined {
@@ -219,27 +227,25 @@ export class MaintainerSubsessionRunner {
       await writeRunLog(job.projectRoot, { event: "start", runId: id, jobKind: job.kind, callerAgent: job.callerAgent, sessionID: job.callerSessionID });
       if (aborted(options.abort)) return { ok: false, output: "", error: "Maintainer subsession was aborted before start." };
 
-      const created = await withTimeout(this.client.session.create({ body: { parentID: job.callerSessionID, title: job.title }, query }), Math.min(API_CALL_TIMEOUT_MS, timeoutMs), "OpenCode maintainer subsession create");
+      const created = await withTimeout(sessionCreate(this.client, { parentID: job.callerSessionID, title: job.title, query }), Math.min(API_CALL_TIMEOUT_MS, timeoutMs), "OpenCode maintainer subsession create");
       sessionID = readString(created, "id");
       if (!sessionID) return { ok: false, output: "", error: "OpenCode did not return a maintainer subsession id." };
       options.onSessionCreated?.(sessionID);
       await writeRunLog(job.projectRoot, { event: "session-created", runId: id, jobKind: job.kind, callerAgent: job.callerAgent, sessionID, elapsedMs: Date.now() - startedAt });
 
-      const promptInput = {
-        path: { id: sessionID },
+      if (!hasSessionMethod(this.client, "promptAsync")) {
+        throw new Error("OpenCode client does not expose session.promptAsync; refusing to use blocking session.prompt from a tool execution callback.");
+      }
+
+      await withTimeout(sessionPromptAsync(this.client, {
+        sessionID,
         body: {
           agent: PROJECT_CONTEXT_MAINTAINER_AGENT_ID,
           tools: MAINTAINER_DISABLED_TOOLS,
           parts: [{ type: "text" as const, text: renderJob(job) }]
         },
         query
-      };
-
-      if (!this.client.session.promptAsync) {
-        throw new Error("OpenCode client does not expose session.promptAsync; refusing to use blocking session.prompt from a tool execution callback.");
-      }
-
-      await withTimeout(this.client.session.promptAsync(promptInput), Math.min(API_CALL_TIMEOUT_MS, Math.max(1, deadline - Date.now())), "OpenCode maintainer subsession prompt_async");
+      }), Math.min(API_CALL_TIMEOUT_MS, Math.max(1, deadline - Date.now())), "OpenCode maintainer subsession prompt_async");
       await writeRunLog(job.projectRoot, { event: "prompt-accepted", runId: id, jobKind: job.kind, callerAgent: job.callerAgent, sessionID, elapsedMs: Date.now() - startedAt });
       const output = await this.waitForCompletedOutput(job, id, startedAt, sessionID, query, deadline, options);
       await writeRunLog(job.projectRoot, { event: "completed", runId: id, jobKind: job.kind, callerAgent: job.callerAgent, sessionID, elapsedMs: Date.now() - startedAt });
@@ -247,15 +253,17 @@ export class MaintainerSubsessionRunner {
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       await writeRunLog(job.projectRoot, { event: "failed", runId: id, jobKind: job.kind, callerAgent: job.callerAgent, ...(sessionID ? { sessionID } : {}), elapsedMs: Date.now() - startedAt, error: reason });
-      if (sessionID && this.client.session.abort) {
+      if (sessionID && hasSessionMethod(this.client, "abort")) {
         try {
-          await withTimeout(this.client.session.abort({ path: { id: sessionID }, query }), 2_000, "OpenCode maintainer subsession abort");
+          await withTimeout(sessionAbort(this.client, { sessionID, query }), 2_000, "OpenCode maintainer subsession abort");
           await writeRunLog(job.projectRoot, { event: "abort-sent", runId: id, jobKind: job.kind, callerAgent: job.callerAgent, sessionID, elapsedMs: Date.now() - startedAt });
         } catch (cleanupError) {
           void cleanupError; // Best-effort cleanup only; preserve the original failure reason.
         }
       }
-      return options.fallback?.(reason) ?? { ok: false, output: "", error: reason };
+      const fallback = options.fallback?.(reason);
+      if (fallback) return { ...fallback, ...(sessionID ? { sessionID } : {}) };
+      return { ok: false, output: "", error: reason, ...(sessionID ? { sessionID } : {}) };
     }
   }
 
@@ -263,9 +271,9 @@ export class MaintainerSubsessionRunner {
     while (Date.now() < deadline) {
       if (aborted(options.abort)) throw new Error("Maintainer subsession was aborted.");
 
-      const messages = await withTimeout(this.client.session.messages({ path: { id: sessionID }, query: { ...query, limit: 20 } }), Math.min(API_CALL_TIMEOUT_MS, Math.max(1, deadline - Date.now())), "OpenCode maintainer subsession messages");
-      const status = this.client.session.status
-        ? await withTimeout(this.client.session.status({ query }), Math.min(API_CALL_TIMEOUT_MS, Math.max(1, deadline - Date.now())), "OpenCode session status")
+      const messages = await withTimeout(sessionMessages(this.client, { sessionID, query: { ...query, limit: 20 } }), Math.min(API_CALL_TIMEOUT_MS, Math.max(1, deadline - Date.now())), "OpenCode maintainer subsession messages");
+      const status = hasSessionMethod(this.client, "status")
+        ? await withTimeout(sessionStatus(this.client, { query }), Math.min(API_CALL_TIMEOUT_MS, Math.max(1, deadline - Date.now())), "OpenCode session status")
         : undefined;
       const statusType = status === undefined ? undefined : readSessionStatusType(status, sessionID);
       await writeRunLog(job.projectRoot, { event: "poll", runId: runIdValue, jobKind: job.kind, callerAgent: job.callerAgent, sessionID, elapsedMs: Date.now() - startedAt, ...(statusType ? { statusType } : {}), messageCount: messageCount(messages) });

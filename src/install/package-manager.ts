@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { PROJECT_CONTEXT_PACKAGE_NAME } from "./plugin-entry.js";
+import { PROJECT_CONTEXT_PACKAGE_NAME, PROJECT_CONTEXT_PLUGIN_ENTRY } from "./plugin-entry.js";
 
 function runNpmCommand(args: string[]): number {
   const npmCommand = resolveNpmCommand();
@@ -43,7 +43,7 @@ function syncOpenCodePackageCache(input: { dryRun: boolean; installRoot: string 
   if (input.dryRun) return;
   const installedRoot = path.join(input.installRoot, "node_modules", PROJECT_CONTEXT_PACKAGE_NAME);
   if (!existsSync(path.join(installedRoot, "package.json"))) return;
-  const packageCacheRoot = path.join(input.installRoot, "packages", `${PROJECT_CONTEXT_PACKAGE_NAME}@latest`);
+  const packageCacheRoot = path.join(input.installRoot, "packages", PROJECT_CONTEXT_PLUGIN_ENTRY);
   const cachedPackageRoot = path.join(packageCacheRoot, "node_modules", PROJECT_CONTEXT_PACKAGE_NAME);
   rmSync(packageCacheRoot, { recursive: true, force: true });
   mkdirSync(path.dirname(cachedPackageRoot), { recursive: true });

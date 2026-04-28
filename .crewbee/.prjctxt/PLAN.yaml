@@ -1,0 +1,29 @@
+project_id: crewbee-project-context
+cycles:
+  - id: C1
+    title: MVP project-context layer
+    status: active
+    steps:
+      - id: S1
+        title: Repository positioning and scaffold convention
+        status: completed
+      - id: S2
+        title: Scaffold bootstrap and doctor validation
+        status: completed
+      - id: S3
+        title: Context primer and compact prepare brief
+        status: completed
+      - id: S4
+        title: Internal local search and public search-only bridge
+        status: completed
+      - id: S5
+        title: Automatic update maintainer flow
+        status: completed
+      - id: S6
+        title: CrewBee/OpenCode integration hardening and verification
+        status: active
+        acceptance_criteria:
+          - Hidden maintainer config and direct-task guard are covered by tests.
+          - Prepare/update do not expose private workspace paths to primary agents.
+          - Install/doctor, diagnostics, and tests pass after current working-tree changes.
+          - Documentation reflects sibling-plugin positioning and current runtime behavior.

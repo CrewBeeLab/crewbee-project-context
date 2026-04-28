@@ -2,7 +2,7 @@
 
 ## 1. Project positioning
 
-CrewBee Project Context is the project-context layer for Agent Coding. It keeps the information that agents repeatedly need across sessions in a compact, explicit, version-controlled `.crewbeectxt/` workspace.
+CrewBee Project Context is the project-context layer for Agent Coding. It keeps the information that agents repeatedly need across sessions in a compact, explicit, version-controlled `.crewbee/.prjctxt/` workspace.
 
 It is not a heavy memory database, not a multi-agent runtime, and not CrewBee Core. It is a standalone package that CrewBee can optionally integrate.
 
@@ -36,7 +36,7 @@ Letting every new session rediscover those facts by reading the whole repository
 
 ## 3. Product answer
 
-The repository owns a `.crewbeectxt/` workspace with high-signal project context and provides a minimal OpenCode plugin extension to:
+The repository owns a `.crewbee/.prjctxt/` workspace with high-signal project context and provides a minimal OpenCode plugin extension to:
 
 1. initialize a missing scaffold on first project startup;
 2. prepare task-relevant project context automatically;
@@ -48,7 +48,7 @@ The repository owns a `.crewbeectxt/` workspace with high-signal project context
 
 ```text
 crewbee-project-context
-  -> .crewbeectxt workspace convention
+  -> .crewbee/.prjctxt workspace convention
   -> OpenCode plugin / hidden maintainer subagent / auto init / auto prepare / optional search / auto update
 
 CrewBee
@@ -65,40 +65,40 @@ The context layer separates canonical human documentation from compact execution
 
 ```text
 docs/       = durable human-facing design documents
-.crewbeectxt/ = compact project-context execution view
-templates/crewbeectxt-template/ = source templates used to create production .crewbeectxt/ workspaces
+.crewbee/.prjctxt/ = compact project-context execution view
+templates/crewbeectxt-template/ = source templates used to create production .crewbee/.prjctxt/ workspaces
 ```
 
-`.crewbeectxt/` should be small enough for the hidden maintainer to read selectively, but structured enough to replace ad hoc session memory.
+`.crewbee/.prjctxt/` should be small enough for the hidden maintainer to read selectively, but structured enough to replace ad hoc session memory.
 
-During development, template documents must live in a directory explicitly marked as a template. The runtime/production directory name remains `.crewbeectxt/`.
+During development, template documents must live in a directory explicitly marked as a template. The runtime/production directory name remains `.crewbee/.prjctxt/`.
 
 ## 6. Core files
 
 | File | Purpose |
 | --- | --- |
-| `.crewbeectxt/QUICKSTART.md` | Agent entry instructions and read order. |
-| `.crewbeectxt/PROJECT.md` | Project identity, scope, constraints, quality bar. |
-| `.crewbeectxt/ARCHITECTURE.md` | Stable system structure and invariants. |
-| `.crewbeectxt/IMPLEMENTATION.md` | Current real implementation snapshot. |
-| `.crewbeectxt/PLAN.yaml` | Date-free plan organized by cycles/steps/checkpoints. |
-| `.crewbeectxt/STATE.yaml` | Current active cycle, active step, blockers, next actions. |
-| `.crewbeectxt/HANDOFF.md` | Next-session entry point. |
-| `.crewbeectxt/MEMORY_INDEX.md` | High-signal memory index. |
-| `.crewbeectxt/DECISIONS.md` | Lightweight architecture decision records. |
-| `.crewbeectxt/REFERENCES.md` | Canonical docs and external references. |
+| `.crewbee/.prjctxt/QUICKSTART.md` | Agent entry instructions and read order. |
+| `.crewbee/.prjctxt/PROJECT.md` | Project identity, scope, constraints, quality bar. |
+| `.crewbee/.prjctxt/ARCHITECTURE.md` | Stable system structure and invariants. |
+| `.crewbee/.prjctxt/IMPLEMENTATION.md` | Current real implementation snapshot. |
+| `.crewbee/.prjctxt/PLAN.yaml` | Date-free plan organized by cycles/steps/checkpoints. |
+| `.crewbee/.prjctxt/STATE.yaml` | Current active cycle, active step, blockers, next actions. |
+| `.crewbee/.prjctxt/HANDOFF.md` | Next-session entry point. |
+| `.crewbee/.prjctxt/MEMORY_INDEX.md` | High-signal memory index. |
+| `.crewbee/.prjctxt/DECISIONS.md` | Lightweight architecture decision records. |
+| `.crewbee/.prjctxt/REFERENCES.md` | Canonical docs and external references. |
 
 ## 7. Functional modules
 
 ```text
 src/core/          shared constants, budgets, errors, types
-src/workspace/     .crewbeectxt paths, bootstrap, doctor, filesystem access
+src/workspace/     .crewbee/.prjctxt paths, bootstrap, doctor, filesystem access
 src/indexer/       extraction from project context files
 src/capsule/       low-token Context Capsule and Task Context Brief generation
 src/maintainer/    maintainer-driven context search support
 src/integrations/  CrewBee bridge and OpenCode plugin adapter, prompt fragments, tools, hidden maintainer metadata
 src/cli/           internal debug/doctor CLI
-templates/crewbeectxt-template/ scaffold source documents copied into target .crewbeectxt/ workspaces
+templates/crewbeectxt-template/ scaffold source documents copied into target .crewbee/.prjctxt/ workspaces
 ```
 
 ## 8. MVP scope
@@ -121,14 +121,14 @@ Development is step-based, not calendar-based.
 ### S1: Repository initialization
 
 - Rename/reposition to `crewbee-project-context`.
-- Add `.crewbeectxt/` workspace and documentation.
+- Add `.crewbee/.prjctxt/` workspace and documentation.
 - Add dependency-free internal CLI/service skeleton.
 
 ### S2: Scaffold MVP
 
-- lazy bootstrap of `.crewbeectxt/`
+- lazy bootstrap of `.crewbee/.prjctxt/`
 - internal doctor
-- `.crewbeectxt/` as the only production context directory name.
+- `.crewbee/.prjctxt/` as the only production context directory name.
 
 ### S3: Primer MVP
 
@@ -136,7 +136,7 @@ Development is step-based, not calendar-based.
 
 ### S4: Internal Read/Search MVP
 
-- Safe internal `.crewbeectxt/` reads.
+- Safe internal `.crewbee/.prjctxt/` reads.
 - Maintainer-controlled local text search over context files.
 
 ### S5: Auto update MVP

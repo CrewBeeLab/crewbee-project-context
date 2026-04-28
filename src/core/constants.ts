@@ -1,4 +1,6 @@
-export const DEFAULT_CONTEXT_DIR = ".crewbeectxt";
+export const DEFAULT_CONTEXT_DIR = ".crewbee/.prjctxt";
+export const PRIVATE_RUNTIME_CONTEXT_DIR = DEFAULT_CONTEXT_DIR;
+export const LEGACY_CONTEXT_DIR = ".crewbeectxt";
 
 export const REQUIRED_CONTEXT_FILES = [
   "QUICKSTART.md",

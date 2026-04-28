@@ -16,7 +16,7 @@ OpenCode
       └─ Hidden Maintainer
 ```
 
-Project Context 的生产 scaffold 目录固定为 `.crewbeectxt/`，与 CrewBee 本体可能使用的 `.crewbee/` 明确分离。
+Project Context 的生产 scaffold 目录固定为 `.crewbee/.prjctxt/`。
 
 ## 2. 核心原则
 
@@ -25,10 +25,10 @@ Project Context 的生产 scaffold 目录固定为 `.crewbeectxt/`，与 CrewBee
 - init 自动执行：首个 root session 启动时，如 scaffold 框架缺失则创建模板并委派 maintainer 初始化。
 - prepare 自动执行：本地 I/O，快速注入 compact brief。
 - update 自动执行：主 Agent 回复完成后，按 material change 判断是否启动 hidden maintainer。
-- 不提供 `project_context_read`，不暴露 `.crewbeectxt/` 文件菜单。
+- 不提供 `project_context_read`，不暴露 `.crewbee/.prjctxt/` 文件菜单。
 - Maintainer 是 OpenCode hidden subagent，通过插件 runtime 被动调用。
 - 不使用 `experimental.session.compacting`。
-- Maintainer 只维护 `.crewbeectxt/**`，不写业务代码。
+- Maintainer 只维护 `.crewbee/.prjctxt/**`，不写业务代码。
 
 ## 3. OpenCode hooks
 
@@ -66,15 +66,15 @@ Maintainer 权限：
 
 ```text
 read/glob/grep: allow
-edit: only .crewbeectxt/**
+edit: only .crewbee/.prjctxt/**
 bash: only git status/diff/log
 webfetch/websearch/task/session/project_context_*: deny
 ```
 
-## 5. `.crewbeectxt/` 工作区
+## 5. `.crewbee/.prjctxt/` 工作区
 
 ```text
-.crewbeectxt/
+.crewbee/.prjctxt/
   config.yaml
   PROJECT.md
   ARCHITECTURE.md
@@ -124,7 +124,7 @@ system transform
 不创建 subsession
 不调用 hidden maintainer
 不读取代码仓库全文
-不暴露 .crewbeectxt 路径
+不暴露 .crewbee/.prjctxt 路径
 ```
 
 ## 8. 手动 Search
@@ -152,12 +152,12 @@ tool.execute.before 捕获工具 args
 tool.execute.after 收集 material signals
 session.idle / session.status idle 触发 AutoUpdateManager
 如果无 material change：skip
-如果有 material change：MaintainerJob(update)
+如果有 material change：写入私有 update job payload，然后通过 OpenCode subtask / Task card 触发 hidden maintainer
 ```
 
 Material change 信号包括：文件编辑、测试/构建/typecheck/lint、关键决策、计划变化、阻塞、用户明确要求记录上下文，以及 search 后产生长期有效结论。
 
-Update 失败只写日志和内部状态，不污染主 Agent 当前回复；下一轮 prepare 继续使用现有 context。
+Update payload 会先写入 `.crewbee/.prjctxt/cache/update-jobs/<jobID>.json`，父 session 只保留短 Job ID prompt，payload 后续由 runtime TTL 清理。Update 是辅助动作；失败只写日志和内部状态，不污染主 Agent 当前回复，不根据失败消息反复重试；下一轮 prepare 继续使用现有 context。
 
 ## 10. 安装与发布
 
@@ -165,7 +165,7 @@ Update 失败只写日志和内部状态，不污染主 Agent 当前回复；下
 
 ```json
 {
-  "plugin": ["crewbee", "crewbee-project-context@latest"]
+  "plugin": ["crewbee", "crewbee-project-context@0.1.1"]
 }
 ```
 
@@ -188,8 +188,8 @@ npm run doctor
 - session 首次 root prompt 自动注入 brief。
 - follow-up 不重复注入 brief。
 - 有 material change 且 session idle 后自动触发 update。
-- hidden maintainer 通过 subsession 执行 initialize/search/update。
-- `.crewbeectxt/` 不暴露给主 Agent。
+- hidden maintainer 通过 OpenCode subtask / Task card 执行 update，通过内部 runner 执行 initialize/search。
+- `.crewbee/.prjctxt/` 不暴露给主 Agent。
 - doctor 通过。
 
 一句话：CrewBee 管“谁来做事”；`crewbee-project-context` 自动准备和维护工程上下文；主 Agent 只在自动上下文仍不足且存在阻塞性历史上下文缺口时才使用 `project_context_search`。
