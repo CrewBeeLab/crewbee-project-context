@@ -476,11 +476,14 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     assert.equal(config.agent["project-context-maintainer"].permission.read[".crewbee/.prjctxt/cache/update-jobs/**"], "allow");
     assert.equal(config.agent["project-context-maintainer"].permission.edit[".crewbee/.prjctxt/**"], "allow");
     assert.deepEqual(Object.keys(config.agent["project-context-maintainer"].permission.edit), [".crewbee/.prjctxt/**", "*"]);
+    assert.deepEqual(Object.keys(config.agent["project-context-maintainer"].permission.write), [".crewbee/.prjctxt/**", "*"]);
+    assert.deepEqual(Object.keys(config.agent["project-context-maintainer"].permission.patch), [".crewbee/.prjctxt/**", "*"]);
+    assert.deepEqual(Object.keys(config.agent["project-context-maintainer"].permission.apply_patch), [".crewbee/.prjctxt/**", "*"]);
     assert.equal(config.agent["project-context-maintainer"].permission.project_context_search, "deny");
     assert.equal(config.agent["project-context-maintainer"].permission["session.prompt"], "deny");
     assert.equal(config.agent["project-context-maintainer"].permission.bash["npm run doctor"], "allow");
     assert.deepEqual(Object.keys(config.agent["project-context-maintainer"].permission.bash), ["git status", "git status *", "git diff", "git diff *", "git log", "git log *", "npm run doctor", "npm run doctor *", "*"]);
-    assert.deepEqual(config.agent["project-context-maintainer"].tools, { read: true, glob: true, grep: true, edit: true, bash: true, write: false, webfetch: false, websearch: false, task: false, project_context_search: false, session: false, "session.create": false, "session.prompt": false, "session.promptAsync": false });
+    assert.deepEqual(config.agent["project-context-maintainer"].tools, { read: true, glob: true, grep: true, edit: true, write: true, patch: true, apply_patch: true, bash: true, webfetch: false, websearch: false, task: false, project_context_search: false, session: false, "session.create": false, "session.prompt": false, "session.promptAsync": false });
     assert.equal(config.agent["project-context-maintainer"].tools.project_context_search, false);
     assert.equal(config.agent["coding-leader"].permission.task["project-context-maintainer"], "deny");
     assert.equal(config.agent.worker.permission.project_context_search, "deny");

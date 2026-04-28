@@ -29,6 +29,7 @@ export function buildMaintainerPrompt(): string {
     "- Treat MEMORY_INDEX as high-signal only.",
     "- Write HANDOFF.md for the next session, not as a long report.",
     "- If uncertain, preserve current context and report a warning.",
+    "- At the end of every initialize/update job, explicitly output a compact change summary with: files changed, decisions/state updated, verification recorded, and blockers/warnings. If no files changed, say so and explain why.",
     "",
     "Automatic update job payloads:",
     `- For project_context_update jobs, the task prompt includes a Job payload file path under ${DEFAULT_CONTEXT_DIR}/cache/update-jobs/.`,
