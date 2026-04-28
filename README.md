@@ -40,8 +40,7 @@ This repository owns the `.crewbee/.prjctxt/` convention and the tools that read
 - When the scaffold is missing, create it from templates and start a hidden maintainer initialization job to read project docs, architecture/design notes, package metadata, tests, and main source implementation.
 - Automatically inject a low-token Runtime Rule + Context Brief when needed.
 - Expose only `project_context_search` to the main agent, with a high threshold: rare fallback for blocking historical context gaps only.
-- Automatically maintain context after material turns through the official OpenCode subtask/Task flow, so Desktop users get a clickable task execution card that opens the Maintainer child session.
-- Keep automatic update job payloads out of the parent prompt by writing them under `.crewbee/.prjctxt/cache/update-jobs/` and cleaning them later on a runtime TTL.
+- Evaluate Project Context update after every main-agent turn; maintain context after material turns through the official OpenCode subtask/Task flow, so Desktop users get a clickable task execution card that opens the Maintainer child session.
 - Avoid exposing scaffold file structure through `project_context_read`.
 - Keep the private context workspace out of main-agent prompt/capsule metadata, direct tool args, and non-maintainer tool outputs.
 - Integrate as an OpenCode plugin and do not use `experimental.session.compacting`.
@@ -62,7 +61,7 @@ In product usage, install `crewbee` and `crewbee-project-context` as sibling Ope
 
 ```json
 {
-  "plugin": ["crewbee", "crewbee-project-context@0.1.1"]
+  "plugin": ["crewbee", "crewbee-project-context@latest"]
 }
 ```
 
@@ -98,7 +97,7 @@ The workspace is a compact execution view for agents, not a replacement for cano
 
 ## Template directory rule
 
-During development, scaffold source documents live under `templates/crewbeectxt-template/` to make it explicit that they are templates. The production context directory created inside a target project is always `.crewbee/.prjctxt/`.
+During development, scaffold source documents live under `templates/prjctxt-template/` to make it explicit that they are templates. The production context directory created inside a target project is always `.crewbee/.prjctxt/`.
 
 ## Documentation
 
@@ -110,4 +109,4 @@ During development, scaffold source documents live under `templates/crewbeectxt-
 
 ## Current implementation status
 
-This version uses a TypeScript implementation with a small service core and an OpenCode plugin adapter. It ships a root `opencode-plugin.mjs` package entrypoint, automatic scaffold initialization, automatic prepare/update runtime actions, Task-style visible maintainer update execution, one visible Project Context search tool, private smart-path wiring, direct Task guard, and CrewBee-style user-level install / doctor flow. `.crewbee/.prjctxt/` is the product context directory.
+This version uses a TypeScript implementation with a small service core and an OpenCode plugin adapter. It ships a root `opencode-plugin.mjs` package entrypoint, automatic scaffold initialization, automatic prepare/update runtime actions, every-turn update evaluation with conditional Task-style maintainer execution, one visible Project Context search tool, private smart-path wiring, direct Task guard, and CrewBee-style user-level install / doctor flow. `.crewbee/.prjctxt/` is the product context directory.

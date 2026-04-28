@@ -10,18 +10,40 @@ CrewBee Project Context
 
 ## Objective
 
-Provide a lightweight, transparent project-context layer for Agent Coding and CrewBee/OpenCode projects. The package owns the private Project Context workspace convention plus a minimal OpenCode plugin that can bootstrap, prepare, search, and automatically maintain compact project knowledge without making CrewBee Core depend on the scaffold.
+Provide a lightweight OpenCode plugin sidecar for CrewBee Agent Coding. The package owns the `.crewbee/.prjctxt/` workspace convention, templates, validation, capsule generation, context search, handoff/finalize flow, hidden maintainer subagent, and minimal OpenCode tools.
+
+## In Scope
+
+- `.crewbee/.prjctxt/` scaffold specification.
+- Context initialization and validation.
+- Low-token context primer generation.
+- Minimal prepare/search/finalize runtime tools for main agents.
+- Internal context read/update/finalize APIs for maintainer and diagnostics.
+- OpenCode plugin adapter that can run alongside the CrewBee plugin.
+- Documentation for humans and agents.
+
+## Out of Scope
+
+- CrewBee Core team/runtime implementation.
+- Heavy memory database.
+- Vector search.
+- Background transcript capture.
+- UI.
+- Cross-repository global memory.
 
 ## Constraints
 
-- Follow the minimalism principle: add files, dependencies, concepts, abstractions, or runtime surfaces only when they reduce future agent context cost or prevent a concrete safety problem.
-- Prefer plain Markdown/YAML-like files, local text search, and adapter-level integration over databases, vector infrastructure, background daemons, or CrewBee Core coupling.
-- Keep the main-agent runtime surface small: automatic init/prepare/update plus one rare-fallback search tool.
-- Keep the private Project Context workspace out of main-agent prompts, direct tool arguments, capsule metadata, non-maintainer tool output, and visible tool schemas.
-- Do not store secrets in the Project Context workspace; deny obvious secret files to the hidden maintainer.
+- Follow the minimalism principle for both framework design and implementation.
+- Keep MVP dependency-free or dependency-light.
+- Prefer plain files, explicit tool calls, and adapter-level integration over background services or core coupling.
+- Keep CrewBee integration optional.
+- Prefer files that can be committed and reviewed.
+- Do not store secrets.
+- Do not use reality-calendar schedules for project plans.
 
 ## Quality Bar
 
-- `npm run diagnostics`, `npm test`, and `npm run doctor` are the primary verification commands.
-- Product behavior must avoid exposing private scaffold paths to primary agents and tests should enforce this boundary.
-- Runtime update failures are auxiliary/best-effort and must not block the primary development task.
+- Diagnostics pass.
+- Tests pass.
+- Build/typecheck pass.
+- `.crewbee/.prjctxt/` context remains consistent with implementation.

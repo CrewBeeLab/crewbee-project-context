@@ -1,0 +1,78 @@
+name: Update OpenCode dependencies
+
+on:
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    name: Update @opencode-ai dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install current dependencies
+        run: npm ci
+
+      - name: Check current OpenCode dependency versions
+        run: npm outdated @opencode-ai/plugin @opencode-ai/sdk || true
+
+      - name: Update OpenCode dependencies to latest exact versions
+        run: npm install @opencode-ai/plugin@latest @opencode-ai/sdk@latest --save --save-exact
+
+      - name: Detect dependency changes
+        id: changes
+        shell: bash
+        run: |
+          if git diff --quiet -- package.json package-lock.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Diagnostics
+        if: steps.changes.outputs.changed == 'true'
+        run: npm run diagnostics
+
+      - name: Tests
+        if: steps.changes.outputs.changed == 'true'
+        run: npm test
+
+      - name: Typecheck
+        if: steps.changes.outputs.changed == 'true'
+        run: npm run typecheck
+
+      - name: Build
+        if: steps.changes.outputs.changed == 'true'
+        run: npm run build
+
+      - name: Create pull request
+        if: steps.changes.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: chore/update-opencode-deps
+          delete-branch: true
+          title: Update OpenCode dependencies
+          commit-message: Update OpenCode dependencies
+          body: |
+            ## Summary
+            - Updates `@opencode-ai/plugin` and `@opencode-ai/sdk` to the current npm `latest` versions using exact package versions.
+            - Keeps published package dependencies fixed to the version validated by CI.
+
+            ## Verification
+            - `npm run diagnostics`
+            - `npm test`
+            - `npm run typecheck`
+            - `npm run build`

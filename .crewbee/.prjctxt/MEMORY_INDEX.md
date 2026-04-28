@@ -1,10 +1,79 @@
 # Memory Index
 
-- MEM-001 [architecture]: This repository owns both the Project Context workspace convention and its OpenCode/CrewBee integration; there is no separate standards repository.
-- MEM-002 [privacy]: Never expose the private scaffold file structure to primary agents; search accepts a goal and maintainer/runtime internals handle file access.
-- MEM-003 [runtime]: Auto prepare injects a compact runtime rule + brief and surfaces a visible prepare summary while filtering that synthetic runtime text from future model context.
-- MEM-004 [runtime]: Auto update triggers from material chat/tool signals, writes cached payload JSON, then launches an isolated hidden-maintainer subsession with only a Job ID prompt; the parent session is terminal-marked until a fresh user message.
-- MEM-005 [testing]: Tests assert search-only public surface, no direct context reads, no private path leakage, guard/redactor behavior, hidden maintainer config, client adapter SDK shapes, and auto prepare/update flows.
-- MEM-006 [verification]: Latest parent session reported `npm run build`, `npm test`, `npm run typecheck`, `npm run diagnostics`, and `npm run doctor` passing after the isolated-update/terminal-session fix; rerun if the final diff changes.
-- MEM-007 [runtime]: Update-job payload files are expected to be cleaned after maintainer success or failure, with TTL cleanup retained only for crashes/abandoned runs.
-- MEM-008 [runtime]: Auto-update must not ask the main agent/user side to execute a maintainer task; the supported path is an isolated hidden-maintainer subsession using `promptAsync` and Job ID-only prompting.
+- ID: M-0001
+  Type: decision
+  Summary: Use `.crewbee/.prjctxt/` as the only production project context workspace directory.
+  Affects: scaffold, templates, CrewBee integration
+  References: `.crewbee/.prjctxt/DECISIONS.md#d-0001`
+
+- ID: M-0002
+  Type: decision
+  Summary: Keep CrewBee Project Context standalone and let CrewBee integrate it optionally without core coupling.
+  Affects: architecture, package boundaries
+  References: `.crewbee/.prjctxt/DECISIONS.md#d-0002`
+
+- ID: M-0003
+  Type: rule
+  Summary: Plans are step/checkpoint based and must not depend on real-world calendar dates.
+  Affects: planning, STATE.yaml, PLAN.yaml
+  References: `.crewbee/.prjctxt/PROJECT.md`
+
+- ID: M-0004
+  Type: decision
+  Summary: Store scaffold source documents under `templates/prjctxt-template/`; reserve `.crewbee/.prjctxt/` for production project context workspaces.
+  Affects: templates, scaffold, documentation
+  References: `.crewbee/.prjctxt/DECISIONS.md#d-0004`
+
+- ID: M-0005
+  Type: discovery
+  Summary: The runtime direction is OpenCode + CrewBee plug-and-play with prepare/search/finalize_request and maintainer-delegated scaffold work.
+  Affects: CLI, API, tests, planning
+  References: `.crewbee/.prjctxt/observations/CP-0003.md`
+
+- ID: M-0008
+  Type: rule
+  Summary: Directory migration is not a product feature; projects should initialize and use `.crewbee/.prjctxt/` directly.
+  Affects: scaffold, CLI, docs
+  References: `.crewbee/.prjctxt/observations/CP-0007.md`
+
+- ID: M-0009
+  Type: discovery
+  Summary: Implementation is being converted to TypeScript with small object-oriented classes coordinated by `ProjectContextService`.
+  Affects: src, build, tests, package
+  References: `.crewbee/.prjctxt/observations/CP-0008.md`
+
+- ID: M-0006
+  Type: rule
+  Summary: Framework design and implementation must follow the minimalism principle; add complexity only when it directly reduces agent context cost or prevents a concrete safety problem.
+  Affects: architecture, implementation, CrewBee integration
+  References: `.crewbee/.prjctxt/DECISIONS.md#d-0005`
+
+- ID: M-0007
+  Type: discovery
+  Summary: Minimalism pass removed template double sources and unused schemas; CrewBee bridge is limited to capsule plus prepare/search/finalize_request.
+  Affects: scaffold, package, build, CrewBee integration
+  References: `.crewbee/.prjctxt/observations/CP-0005.md`
+
+- ID: M-0010
+  Type: decision
+  Summary: Do not expose `project_context_read`; main agents request prepare/search/finalize_request and Context Maintainer handles scaffold structure.
+  Affects: CrewBee integration, prompt, tool surface
+  References: `docs/zh-CN/PROJECT_GUIDE.md`
+
+- ID: M-0011
+  Type: decision
+  Summary: `crewbee-project-context` is a sibling OpenCode plugin with root `opencode-plugin.mjs`, hidden maintainer, three tools, and CrewBee-style user-level install/doctor flow.
+  Affects: package, OpenCode plugin loading, install, doctor
+  References: `.crewbee/.prjctxt/observations/CP-0013.md`
+
+- ID: M-0012
+  Type: rule
+  Summary: The private Project Context workspace must be invisible to the main Agent through prompt/capsule text, tool args, and non-maintainer tool outputs; access goes through prepare/search/finalize.
+  Affects: OpenCode hooks, capsule, tool guard, output redaction
+  References: `.crewbee/.prjctxt/observations/CP-0014.md`
+
+- ID: M-0013
+  Type: decision
+  Summary: Automatic prepare remains system-transform-only; automatic update uses OpenCode's official subtask/Task flow to render a clickable maintainer child-session execution card.
+  Affects: OpenCode hooks, Desktop UI observability, maintainer child sessions
+  References: `.crewbee/.prjctxt/observations/CP-0015.md`

@@ -1,20 +1,23 @@
 project_id: crewbee-project-context
 run_status: running
-active_cycle: C1
-active_step_id: S6
-last_checkpoint: CP-0002
-blockers:
-  - Working tree contains broad unrelated edits/deletions outside the latest runtime payload cleanup/context-maintenance work; review scope carefully before commit/release.
+active_cycle: C2
+active_step_id: S11
+last_checkpoint: CP-0015
+blockers: []
 next_actions:
-  - action: Review current working-tree diff and separate the isolated-update/terminal-session/payload-cleanup fix from older unrelated changes before committing.
+  - action: Run an end-to-end OpenCode Desktop startup smoke test with plugin config [crewbee, crewbee-project-context].
     owner: active-agent
-    source: update-job pcu_moizikmg_8gx0pryb
-  - action: If preparing a release/commit, rerun npm run build, npm test, npm run typecheck, npm run diagnostics, and npm run doctor serially after final diff is settled.
+    source: updateContext
+  - action: Validate prepare uses system-transform context and a Desktop-visible no-reply ignored summary that does not enter later model history.
     owner: active-agent
-    source: update-job pcu_moizikmg_8gx0pryb
-  - action: Runtime-test that isolated maintainer updates do not return to the main agent LLM, terminal-marked sessions do not re-trigger updates on non-user events, and payload cleanup still occurs on success/failure.
+    source: updateContext
+  - action: Validate project_context_update appears as a clickable Task-style execution card, opens the Maintainer child session, and can read the private update job payload.
     owner: active-agent
-    source: update-job pcu_moizikmg_8gx0pryb
-  - action: Ensure any remaining update invocations use the isolated maintainer subsession path rather than explicit parent/main-agent maintainer tasks.
+    source: updateContext
+  - action: Resume v0.1.0 GitHub release after committing the Desktop update observability changes; gh CLI is unavailable in this environment.
     owner: active-agent
-    source: update-job pcu_moizikmg_8gx0pryb
+    source: updateContext
+sync:
+  plan_state_consistent: true
+  handoff_updated: true
+  memory_index_updated: true

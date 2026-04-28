@@ -35,7 +35,7 @@ Before declaring a change complete:
 - Do not store secrets in `.crewbee/.prjctxt/`.
 - Do not duplicate long canonical docs into `.crewbee/.prjctxt/`; reference `docs/` instead.
 - Keep `.crewbee/.prjctxt/IMPLEMENTATION.md` aligned with the actual code.
-- Keep scaffold source documents under `templates/crewbeectxt-template/`; reserve `.crewbee/.prjctxt/` for production project context workspaces.
+- Keep scaffold source documents under `templates/prjctxt-template/`; reserve `.crewbee/.prjctxt/` for production project context workspaces.
 
 ## Module boundaries
 

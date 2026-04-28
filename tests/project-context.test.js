@@ -1075,7 +1075,7 @@ test("install config writer keeps project context after CrewBee", () => {
   const config = { plugin: ["crewbee-project-context", "crewbee"] };
   const update = upsertProjectContextPluginEntry(config);
   assert.equal(update.changed, true);
-  assert.deepEqual(config.plugin, ["crewbee", "crewbee-project-context@0.1.1"]);
+  assert.deepEqual(config.plugin, ["crewbee", "crewbee-project-context@0.1.2"]);
   assert.deepEqual(update.migratedEntries, ["crewbee-project-context"]);
   assert.equal(hasRecommendedPluginOrder(config), true);
 });
@@ -1090,7 +1090,7 @@ test("install doctor verifies plugin entry, order, hidden maintainer, and tools"
     await mkdir(path.dirname(configPath), { recursive: true });
     await writeFile(path.join(installRoot, "package.json"), JSON.stringify({ name: "opencode-plugin-workspace", private: true }, null, 2), "utf8");
     await writeFile(path.join(installedPackageRoot, "package.json"), JSON.stringify({ name: "crewbee-project-context", version: "0.1.0", type: "module" }, null, 2), "utf8");
-    await writeFile(configPath, JSON.stringify({ plugin: ["crewbee", "crewbee-project-context@0.1.1"] }, null, 2), "utf8");
+    await writeFile(configPath, JSON.stringify({ plugin: ["crewbee", "crewbee-project-context@0.1.2"] }, null, 2), "utf8");
     await cp(path.resolve("dist"), path.join(installedPackageRoot, "dist"), { recursive: true });
     await cp(path.resolve("opencode-plugin.mjs"), path.join(installedPackageRoot, "opencode-plugin.mjs"));
     await cp(path.resolve("node_modules", "@opencode-ai", "plugin"), path.join(installRoot, "node_modules", "@opencode-ai", "plugin"), { recursive: true });

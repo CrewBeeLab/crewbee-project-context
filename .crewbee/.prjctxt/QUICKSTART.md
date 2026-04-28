@@ -1,5 +1,5 @@
-# CrewBee Project Context Context Quickstart
+# CrewBee Project Context Quickstart
 
-Project Context initialization, prepare, and update are automatic. Use `project_context_search` only as a rare fallback when auto init/prepare/update still leave a concrete historical project-context gap that blocks the task.
+Project Context prepare and update are automatic. Use `project_context_search` only when the prepared context is insufficient and a concrete historical project-context gap blocks progress.
 
-On first startup, the plugin creates this scaffold if required files are missing and delegates the hidden maintainer to initialize it from project docs, architecture/design notes, tests, package metadata, and main source implementation.
+The hidden Project Context Maintainer owns `.crewbee/.prjctxt/` reads and writes. Main agents should not need a scaffold file menu.

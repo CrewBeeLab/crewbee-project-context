@@ -634,7 +634,6 @@ export class AutoUpdateManager {
       });
       if (result.sessionID) await this.cleanupMaintainerUpdateJob(result.sessionID, result.ok ? "maintainer_completed" : "maintainer_failed");
       await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: result.ok ? "maintainer-completed" : "maintainer-failed", sessionID, details: { jobID: payload.jobID, reasons: reasons.join(","), maintainerSessionID: result.sessionID }, ...(result.ok ? {} : { error: result.error ?? result.output }) });
-      if (result.sessionID) await this.cleanupMaintainerUpdateJob(result.sessionID, result.ok ? "maintainer_completed" : "maintainer_failed");
     } catch (error) {
       await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "failed", sessionID, details: { reasons: reasons.join(",") }, error: error instanceof Error ? error.message : String(error) });
     }

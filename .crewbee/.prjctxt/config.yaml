@@ -2,5 +2,12 @@ version: 1
 primer:
   budget_tokens: 1000
   memory_limit: 5
+  decision_limit: 5
 write_policy:
   mode: tool-confirmed
+  require_hash_check: true
+crewbee_integration:
+  enabled: true
+  auto_inject_primer: true
+  auto_finalize: manual
+  register_tools: true

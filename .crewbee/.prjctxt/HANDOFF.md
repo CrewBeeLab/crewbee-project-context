@@ -2,22 +2,35 @@
 
 ## Current Snapshot
 
-- Active step: C1/S6 — CrewBee/OpenCode integration hardening and verification.
-- Project Context now has a populated internal scaffold based on current docs/source/tests.
-- The implementation appears to include automatic scaffold init, compact prepare, visible prepare summary, search-only main-agent tool, private workspace guards/redaction, and official Task-card maintainer update with cached payloads.
-- Latest update moved auto-update execution to an isolated hidden-maintainer subsession via `session.create`/`promptAsync`, so update completion no longer returns to the main agent LLM.
-- Parent sessions are now terminal-marked after update completion/failure; non-user runtime/status/idle events are ignored until a fresh user message to avoid duplicate update loops after forced stop/status chatter.
-- Update-job payload files are removed after runner success or failure, while TTL cleanup remains as a crash fallback.
-- Verification reported by recent parent sessions: `npm run build`, `npm test` (28/28), `npm run typecheck`, `npm run diagnostics`, and `npm run doctor` all passed; maintainer reran `npm run doctor` for the latest context update and it reported `healthy: true`.
+- Active step: C2/S11 �?End-to-end OpenCode startup smoke verification.
+- Run status: running.
+- Last checkpoint: CP-0015.
+- Blockers: none known.
+
+## What Changed This Session
+
+Adjusted OpenCode Desktop observability to match official OpenCode semantics: automatic prepare still injects model context through system transform and now writes a separate Desktop-visible `noReply: true`, `ignored: true` parent-session summary that does not enter later LLM history. Automatic update launches the Maintainer through the official subtask/Task path so the parent session gets a clickable task execution card linked to the child session. Full update context is written to a one-time private `.crewbee/.prjctxt/cache/update-jobs/` JSON payload referenced by the Task prompt, then deleted after the internal task completes; the parent prompt stays compact and does not embed full request/final-summary/git/verification details.
 
 ## Open Blockers
 
-- Working tree still includes broad unrelated edits/deletions outside the latest runtime payload cleanup/context-maintenance work; do not bundle them blindly.
-- Process-crash cleanup remains dependent on TTL cleanup rather than immediate runner cleanup.
+- None known.
+
+## Next Session Start Checklist
+
+1. Read this handoff.
+2. Check .crewbee/.prjctxt/STATE.yaml and .crewbee/.prjctxt/PLAN.yaml.
+3. Use .crewbee/.prjctxt/IMPLEMENTATION.md before broad code exploration.
 
 ## Exact Next Actions
 
-1. Review current diff scope and separate the isolated-update/terminal-session/payload-cleanup changes from older unrelated working-tree changes before any commit/release.
-2. If product code changes again or the final commit scope changes, rerun `npm run build`, `npm test`, `npm run typecheck`, `npm run diagnostics`, and `npm run doctor` serially on Windows.
-3. In follow-up runtime testing, confirm updates do not return control to the main agent LLM, forced-stop/status events do not trigger duplicate updates, and payload files disappear after success/failure.
-4. Continue preserving the privacy boundary: parent prompts only get Job IDs; maintainer reads private payloads through runtime authorization; avoid explicit main-agent maintainer tasks in the auto-update path.
+1. Run an end-to-end OpenCode Desktop startup smoke test with plugin config [crewbee, crewbee-project-context].
+2. Validate that prepare context is present in the LLM system context and the Desktop-visible `Project Context prepared` summary does not enter later model history.
+3. Validate that `project_context_update` appears as a clickable Task-style execution card, opens the Maintainer child session, and the maintainer can read the private update job payload.
+4. Resume v0.1.0 GitHub release after committing the Desktop update observability changes; note that `gh` CLI is unavailable in this environment.
+
+## References
+
+- .crewbee/.prjctxt/PLAN.yaml
+- .crewbee/.prjctxt/STATE.yaml
+- .crewbee/.prjctxt/IMPLEMENTATION.md
+- .crewbee/.prjctxt/MEMORY_INDEX.md

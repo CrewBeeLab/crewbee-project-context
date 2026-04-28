@@ -66,7 +66,7 @@ The context layer separates canonical human documentation from compact execution
 ```text
 docs/       = durable human-facing design documents
 .crewbee/.prjctxt/ = compact project-context execution view
-templates/crewbeectxt-template/ = source templates used to create production .crewbee/.prjctxt/ workspaces
+templates/prjctxt-template/ = source templates used to create production .crewbee/.prjctxt/ workspaces
 ```
 
 `.crewbee/.prjctxt/` should be small enough for the hidden maintainer to read selectively, but structured enough to replace ad hoc session memory.
@@ -98,7 +98,7 @@ src/capsule/       low-token Context Capsule and Task Context Brief generation
 src/maintainer/    maintainer-driven context search support
 src/integrations/  CrewBee bridge and OpenCode plugin adapter, prompt fragments, tools, hidden maintainer metadata
 src/cli/           internal debug/doctor CLI
-templates/crewbeectxt-template/ scaffold source documents copied into target .crewbee/.prjctxt/ workspaces
+templates/prjctxt-template/ scaffold source documents copied into target .crewbee/.prjctxt/ workspaces
 ```
 
 ## 8. MVP scope
