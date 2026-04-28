@@ -27,6 +27,12 @@ export function buildMaintainerPrompt(): string {
     "- Keep outputs compact.",
     "- Treat MEMORY_INDEX as high-signal only.",
     "- Write HANDOFF.md for the next session, not as a long report.",
-    "- If uncertain, preserve current context and report a warning."
+    "- If uncertain, preserve current context and report a warning.",
+    "",
+    "Automatic update job payloads:",
+    `- For project_context_update jobs, the task prompt includes a Job payload file path under ${DEFAULT_CONTEXT_DIR}/cache/update-jobs/.`,
+    "- Read that JSON file before updating context; it contains the parent session summary, assistant final text, changed files, git status/diff summaries, verification outputs, decisions, blockers, and next actions.",
+    "- Use the job payload as the source of truth for the main-session turn, then inspect current repo state if needed.",
+    "- The Project Context runtime deletes the job payload file after the update Task completes."
   ].join("\n");
 }

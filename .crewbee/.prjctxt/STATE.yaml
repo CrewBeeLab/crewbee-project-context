@@ -8,10 +8,10 @@ next_actions:
   - action: Run an end-to-end OpenCode Desktop startup smoke test with plugin config [crewbee, crewbee-project-context].
     owner: active-agent
     source: updateContext
-  - action: Validate prepare uses system-transform context without creating no-reply parent-session messages.
+  - action: Validate prepare uses system-transform context and a Desktop-visible no-reply ignored summary that does not enter later model history.
     owner: active-agent
     source: updateContext
-  - action: Validate project_context_update appears as a clickable Task-style execution card and opens the Maintainer child session.
+  - action: Validate project_context_update appears as a clickable Task-style execution card, opens the Maintainer child session, and can read the private update job payload.
     owner: active-agent
     source: updateContext
   - action: Resume v0.1.0 GitHub release after committing the Desktop update observability changes; gh CLI is unavailable in this environment.

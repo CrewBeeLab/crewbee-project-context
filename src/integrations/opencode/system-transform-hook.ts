@@ -50,22 +50,6 @@ function readParentID(session: unknown): string | undefined {
   return undefined;
 }
 
-function readString(value: unknown, key: string): string | undefined {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
-  const record = value as Record<string, unknown>;
-  const direct = record[key];
-  if (typeof direct === "string") return direct;
-  const info = record.info;
-  if (typeof info === "object" && info !== null && !Array.isArray(info)) return readString(info, key);
-  return undefined;
-}
-
-function partID(): string {
-  const time = BigInt(Date.now()) * 0x1000n + BigInt(Math.floor(Math.random() * 0x1000));
-  const hex = time.toString(16).padStart(12, "0").slice(-12);
-  return `prt_${hex}${Math.random().toString(36).slice(2, 16).padEnd(14, "0")}`;
-}
-
 function revisionLabel(revision: string): string {
   let hash = 2166136261;
   for (let index = 0; index < revision.length; index += 1) {
@@ -185,21 +169,22 @@ export function createProjectContextSystemTransformHook(input: { service: Projec
       briefText: brief.text,
       systemBriefPending: previous?.revision === revision ? previous.systemBriefPending === true : true
     });
-    const messageID = readString(output.message, "id") ?? readString(output.parts?.[0], "messageID");
-    const partSessionID = readString(output.message, "sessionID") ?? readString(output.parts?.[0], "sessionID") ?? sessionID;
-    if (!messageID) {
-      await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "visible-prepare-failed", sessionID, error: "OpenCode chat.message output did not expose a message id." });
+    if (!input.client.session.prompt) {
+      await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "visible-prepare-unavailable", sessionID, error: "OpenCode client does not expose session.prompt noReply for visible prepare summary." });
       return;
     }
-    output.parts ??= [];
-    output.parts.push({
-      id: partID(),
-      sessionID: partSessionID,
-      messageID,
-      type: "text",
-      synthetic: true,
-      metadata: { kind: "project_context_prepare", revision: revisionLabel(revision) },
-      text: visiblePrepareSummary({ revision, estimatedTokens: brief.estimatedTokens, warnings: brief.warnings, briefText: brief.text })
+    await input.client.session.prompt({
+      path: { id: sessionID },
+      body: {
+        noReply: true,
+        parts: [{
+          type: "text",
+          ignored: true,
+          metadata: { kind: "project_context_prepare", revision: revisionLabel(revision) },
+          text: visiblePrepareSummary({ revision, estimatedTokens: brief.estimatedTokens, warnings: brief.warnings, briefText: brief.text })
+        }]
+      },
+      query: { directory: input.projectRoot, workspace: input.projectRoot }
     });
     await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "visible-prepare-message", sessionID, details: { estimatedTokens: brief.estimatedTokens, warnings: brief.warnings.length } });
   };

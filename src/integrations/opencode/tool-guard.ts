@@ -16,7 +16,11 @@ function isProjectContextUpdateSubtask(args: unknown): boolean {
   if (typeof args !== "object" || args === null || Array.isArray(args)) return false;
   const record = args as Record<string, unknown>;
   const target = record.subagent_type ?? record.agent ?? record.subagent;
-  return target === PROJECT_CONTEXT_MAINTAINER_AGENT_ID && record.command === "project_context_update";
+  if (target !== PROJECT_CONTEXT_MAINTAINER_AGENT_ID || record.command !== "project_context_update") return false;
+  if (typeof record.prompt !== "string") return false;
+  return /^Project Context Maintainer job: update$/m.test(record.prompt)
+    && /^Job payload file:\s*\.crewbee\/\.prjctxt\/cache\/update-jobs\/update-[A-Za-z0-9-]+\.json$/m.test(record.prompt)
+    && /Update only the private Project Context scaffold\/workspace\./.test(record.prompt);
 }
 
 function isProjectContextTool(tool: string): boolean {

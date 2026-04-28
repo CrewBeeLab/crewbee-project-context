@@ -2,14 +2,14 @@
 
 ## Current Snapshot
 
-- Active step: C2/S11 â€?End-to-end OpenCode startup smoke verification.
+- Active step: C2/S11 ï¿½?End-to-end OpenCode startup smoke verification.
 - Run status: running.
-- Last checkpoint: CP-0014.
+- Last checkpoint: CP-0015.
 - Blockers: none known.
 
 ## What Changed This Session
 
-Adjusted OpenCode Desktop observability to match official OpenCode semantics: automatic prepare remains system-transform-only and does not write no-reply messages, while automatic update now launches the Maintainer through the official subtask/Task path so the parent session gets a clickable task execution card linked to the child session. The private workspace path remains redacted from main-agent-facing text and non-maintainer outputs.
+Adjusted OpenCode Desktop observability to match official OpenCode semantics: automatic prepare still injects model context through system transform and now writes a separate Desktop-visible `noReply: true`, `ignored: true` parent-session summary that does not enter later LLM history. Automatic update launches the Maintainer through the official subtask/Task path so the parent session gets a clickable task execution card linked to the child session. Full update context is written to a one-time private `.crewbee/.prjctxt/cache/update-jobs/` JSON payload referenced by the Task prompt, then deleted after the internal task completes; the parent prompt stays compact and does not embed full request/final-summary/git/verification details.
 
 ## Open Blockers
 
@@ -24,8 +24,8 @@ Adjusted OpenCode Desktop observability to match official OpenCode semantics: au
 ## Exact Next Actions
 
 1. Run an end-to-end OpenCode Desktop startup smoke test with plugin config [crewbee, crewbee-project-context].
-2. Validate that prepare context is present in the LLM system context without creating a no-reply parent-session message.
-3. Validate that `project_context_update` appears as a clickable Task-style execution card and opens the Maintainer child session.
+2. Validate that prepare context is present in the LLM system context and the Desktop-visible `Project Context prepared` summary does not enter later model history.
+3. Validate that `project_context_update` appears as a clickable Task-style execution card, opens the Maintainer child session, and the maintainer can read the private update job payload.
 4. Resume v0.1.0 GitHub release after committing the Desktop update observability changes; note that `gh` CLI is unavailable in this environment.
 
 ## References

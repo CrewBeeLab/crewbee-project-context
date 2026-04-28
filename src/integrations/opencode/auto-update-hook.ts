@@ -1,8 +1,12 @@
 import { ProjectContextService } from "../../service/project-context-service.js";
 import { PROJECT_CONTEXT_MAINTAINER_AGENT_ID } from "./maintainer-prompt.js";
 import { writeRuntimeLog } from "./runtime-log.js";
-import { MaintainerSubsessionRunner } from "./subsession-runner.js";
 import type { OpenCodeClientLike } from "./types.js";
+import { DEFAULT_CONTEXT_DIR } from "../../core/constants.js";
+import { execFile } from "node:child_process";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
 
 interface SessionUpdateState {
   inFlight: boolean;
@@ -10,11 +14,38 @@ interface SessionUpdateState {
   lastMessageSignature?: string;
   materialReasons: Set<string>;
   toolEvents: string[];
+  latestUserRequest: string | undefined;
+  assistantFinalText: string | undefined;
+  decisions: Set<string>;
+  nextActions: Set<string>;
+  blockers: Set<string>;
+  verificationOutputs: string[];
 }
 
 interface PendingToolCall {
   tool: string;
   args?: unknown;
+}
+
+interface UpdateJobPayload {
+  trigger: {
+    reasons: string[];
+    toolEvents: string[];
+  };
+  parentSessionSummary: {
+    latestUserRequest: string | undefined;
+    assistantFinalText: string | undefined;
+    decisions: string[];
+    nextActions: string[];
+    blockers: string[];
+  };
+  engineeringChanges: {
+    changedFiles: string[];
+    gitStatusSummary: string;
+    gitDiffSummary: string;
+    verificationOutputs: string[];
+  };
+  instruction: string[];
 }
 
 function readEventType(event: unknown): string | undefined {
@@ -80,7 +111,7 @@ function collectText(value: unknown, output: string[]): void {
   for (const key of ["text", "content", "output"]) {
     if (typeof record[key] === "string") output.push(record[key]);
   }
-  for (const key of ["parts", "message", "data", "properties", "info"]) collectText(record[key], output);
+  for (const key of ["result", "parts", "message", "data", "properties", "info"]) collectText(record[key], output);
 }
 
 function asArray(value: unknown): unknown[] {
@@ -96,6 +127,31 @@ function readEventText(event: unknown): string {
   const chunks: string[] = [];
   collectText(event, chunks);
   return chunks.join("\n").trim();
+}
+
+function compactText(text: string, max = 1_600): string {
+  const cleaned = text.replace(/\r/g, "").replace(/[ \t]+\n/g, "\n").trim();
+  if (cleaned.length <= max) return cleaned;
+  return `${cleaned.slice(0, max)}\n[truncated ${cleaned.length - max} chars]`;
+}
+
+function addSignalLines(target: Set<string>, text: string, pattern: RegExp): void {
+  for (const line of text.split("\n")) {
+    const cleaned = line.trim();
+    if (!cleaned || !pattern.test(cleaned)) continue;
+    target.add(compactText(cleaned, 240));
+  }
+}
+
+function recordMessageSummary(state: SessionUpdateState, role: string | undefined, text: string): void {
+  if (!text.trim()) return;
+  if (role === "user") state.latestUserRequest = compactText(text, 1_200);
+  if (role === "assistant") {
+    state.assistantFinalText = compactText(text, 2_400);
+    addSignalLines(state.decisions, text, /(决定|采用|废弃|改为|最终方案|decision|decided|adopt|deprecat)/i);
+    addSignalLines(state.nextActions, text, /(计划|下一步|后续|todo|next step|plan|follow-up)/i);
+    addSignalLines(state.blockers, text, /(阻塞|失败|无法继续|待确认|blocker|blocked|failed|cannot proceed)/i);
+  }
 }
 
 function textMaterialReasons(role: string | undefined, text: string): string[] {
@@ -133,6 +189,147 @@ function toolCallKey(sessionID: string, callID: string): string {
   return `${sessionID}:${callID}`;
 }
 
+function isProjectContextUpdateTask(args: unknown): boolean {
+  if (typeof args !== "object" || args === null || Array.isArray(args)) return false;
+  const record = args as Record<string, unknown>;
+  return (record.subagent_type ?? record.agent ?? record.subagent) === PROJECT_CONTEXT_MAINTAINER_AGENT_ID && record.command === "project_context_update";
+}
+
+function readString(value: unknown, key: string): string | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const direct = (value as Record<string, unknown>)[key];
+  return typeof direct === "string" ? direct : undefined;
+}
+
+function updateJobsDir(projectRoot: string): string {
+  return path.join(projectRoot, DEFAULT_CONTEXT_DIR, "cache", "update-jobs");
+}
+
+function isSafeUpdateJobRelativePath(relativePath: string): boolean {
+  const normalized = relativePath.replace(/\\/g, "/");
+  const prefix = `${DEFAULT_CONTEXT_DIR}/cache/update-jobs/`;
+  if (!normalized.startsWith(prefix) || !normalized.endsWith(".json")) return false;
+  const relativeWithinJobs = normalized.slice(prefix.length);
+  return relativeWithinJobs.length > 0 && !relativeWithinJobs.split("/").includes("..") && !path.isAbsolute(normalized);
+}
+
+function updateJobRelativePath(jobID: string): string {
+  return path.join(DEFAULT_CONTEXT_DIR, "cache", "update-jobs", `${jobID}.json`).replace(/\\/g, "/");
+}
+
+function updateJobAbsolutePath(projectRoot: string, relativePath: string): string {
+  return path.join(projectRoot, relativePath);
+}
+
+function readUpdateJobPathFromPrompt(prompt: string | undefined): string | undefined {
+  if (!prompt) return undefined;
+  const match = prompt.match(/^Job payload file:\s*(.+)$/m);
+  return match?.[1]?.trim();
+}
+
+async function gitOutput(projectRoot: string, args: string[], timeoutMs = 5_000): Promise<string> {
+  return await new Promise((resolve) => {
+    const child = execFile("git", ["-C", projectRoot, ...args], { timeout: timeoutMs, windowsHide: true }, (error, stdout, stderr) => {
+      if (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        resolve(compactText(`unavailable: ${message}${stderr ? `\n${stderr}` : ""}`.trim(), 1_200));
+        return;
+      }
+      resolve(compactText(`${stdout}${stderr ? `\n${stderr}` : ""}`, 3_000) || "clean / no output");
+    });
+    child.on("error", (error) => resolve(`unavailable: ${error.message}`));
+  });
+}
+
+async function collectEngineeringSnapshot(projectRoot: string): Promise<{ changedFiles: string[]; gitStatus: string; gitDiffSummary: string }> {
+  const gitStatus = await gitOutput(projectRoot, ["status", "--short"]);
+  const changedFiles = gitStatus.startsWith("unavailable:")
+    ? []
+    : gitStatus
+      .split("\n")
+      .map((line) => line.trim().replace(/^..\s+/, ""))
+      .filter((line) => line.length > 0 && line !== "clean / no output")
+      .slice(0, 80);
+  const gitDiffSummary = await gitOutput(projectRoot, ["diff", "--stat"]);
+  return { changedFiles, gitStatus, gitDiffSummary };
+}
+
+function buildUpdatePayload(input: {
+  reasons: string[];
+  toolEvents: string[];
+  latestUserRequest: string | undefined;
+  assistantFinalText: string | undefined;
+  decisions: string[];
+  nextActions: string[];
+  blockers: string[];
+  changedFiles: string[];
+  gitStatus: string;
+  gitDiffSummary: string;
+  verificationOutputs: string[];
+}): UpdateJobPayload {
+  return {
+    trigger: {
+      reasons: input.reasons,
+      toolEvents: input.toolEvents
+    },
+    parentSessionSummary: {
+      latestUserRequest: input.latestUserRequest,
+      assistantFinalText: input.assistantFinalText,
+      decisions: input.decisions,
+      nextActions: input.nextActions,
+      blockers: input.blockers
+    },
+    engineeringChanges: {
+      changedFiles: input.changedFiles,
+      gitStatusSummary: input.gitStatus,
+      gitDiffSummary: input.gitDiffSummary,
+      verificationOutputs: input.verificationOutputs
+    },
+    instruction: [
+      "Inspect current repo state if needed, especially git status and git diff.",
+      "Update only the private Project Context scaffold/workspace.",
+      "Record durable implementation state, project decisions, risks, blockers, and next actions.",
+      "Run doctor / consistency checks when available; do not fabricate verification.",
+      "Return a compact success or failure summary."
+    ]
+  };
+}
+
+async function writeUpdateJob(projectRoot: string, payload: UpdateJobPayload): Promise<{ jobID: string; relativePath: string }> {
+  const jobID = `update-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
+  const relativePath = updateJobRelativePath(jobID);
+  await mkdir(updateJobsDir(projectRoot), { recursive: true });
+  await writeFile(updateJobAbsolutePath(projectRoot, relativePath), JSON.stringify({ jobID, createdAt: new Date().toISOString(), payload }, null, 2), "utf8");
+  return { jobID, relativePath };
+}
+
+async function deleteUpdateJob(projectRoot: string, relativePath: string | undefined): Promise<void> {
+  if (!relativePath) return;
+  const normalized = relativePath.replace(/\\/g, "/");
+  if (!isSafeUpdateJobRelativePath(normalized)) return;
+  const jobsDir = path.resolve(updateJobsDir(projectRoot));
+  const target = path.resolve(updateJobAbsolutePath(projectRoot, normalized));
+  const relative = path.relative(jobsDir, target);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return;
+  await unlink(target).catch(() => undefined);
+}
+
+function renderUpdateSubtaskPrompt(input: { jobID: string; jobFile: string }): string {
+  return [
+    "Project Context Maintainer job: update",
+    "",
+    `Job ID: ${input.jobID}`,
+    `Job payload file: ${input.jobFile}`,
+    "",
+    "Instruction:",
+    "- Read the JSON payload from the job payload file before updating context.",
+    "- Use that payload as the source of truth for this main-session turn.",
+    "- Update only the private Project Context scaffold/workspace.",
+    "- Run doctor / consistency checks when available; do not fabricate verification.",
+    "- Return a compact success or failure summary. The Project Context runtime will delete the job file after this task completes."
+  ].join("\n");
+}
+
 export class AutoUpdateManager {
   private readonly states = new Map<string, SessionUpdateState>();
   private readonly pendingToolCalls = new Map<string, PendingToolCall>();
@@ -149,9 +346,14 @@ export class AutoUpdateManager {
     this.pendingToolCalls.set(toolCallKey(input.sessionID, input.callID), { tool: input.tool, args: output.args });
   }
 
-  public recordToolAfter(input: { tool: string; sessionID: string; callID: string; args?: unknown }): void {
+  public async recordToolAfter(input: { tool: string; sessionID: string; callID: string; args?: unknown }, output?: { result?: unknown; [key: string]: unknown }): Promise<void> {
     if (this.maintainerSessions.has(input.sessionID)) return;
     const key = toolCallKey(input.sessionID, input.callID);
+    if (input.tool === "task" && isProjectContextUpdateTask(input.args)) {
+      this.pendingToolCalls.delete(key);
+      await deleteUpdateJob(this.input.projectRoot, readUpdateJobPathFromPrompt(readString(input.args, "prompt")));
+      return;
+    }
     const pending = this.pendingToolCalls.get(key);
     this.pendingToolCalls.delete(key);
     const args = pending?.args ?? input.args;
@@ -161,6 +363,7 @@ export class AutoUpdateManager {
     const state = this.state(input.sessionID);
     state.materialReasons.add(reason);
     state.toolEvents.push(`${toolName}:${reason}`);
+    if (reason === "verification") state.verificationOutputs.push(`${toolName} ${compactText(stringifyArgs(args), 400)} => ${compactText(readEventText(output), 1_000)}`);
   }
 
   public recordChatMessage(input: { sessionID?: string }, output: { message?: unknown; parts?: unknown[] }): void {
@@ -169,6 +372,7 @@ export class AutoUpdateManager {
     const text = readEventText(output);
     const role = readRole(output) ?? readRole(output.message) ?? "user";
     const state = this.state(sessionID);
+    recordMessageSummary(state, role, text);
     for (const reason of textMaterialReasons(role, text)) state.materialReasons.add(reason);
   }
 
@@ -180,7 +384,10 @@ export class AutoUpdateManager {
     if (type?.startsWith("message.")) {
       if (!sessionID) return;
       const state = this.state(sessionID);
-      for (const reason of textMaterialReasons(readRole(input.event), readEventText(input.event))) {
+      const text = readEventText(input.event);
+      const role = readRole(input.event);
+      recordMessageSummary(state, role, text);
+      for (const reason of textMaterialReasons(role, text)) {
         state.materialReasons.add(reason);
       }
       return;
@@ -212,7 +419,9 @@ export class AutoUpdateManager {
       for (const message of recent) {
         const role = readRole(message);
         if (role !== "assistant" && role !== "user") continue;
-        for (const reason of textMaterialReasons(role, readEventText(message))) state.materialReasons.add(reason);
+        const text = readEventText(message);
+        recordMessageSummary(state, role, text);
+        for (const reason of textMaterialReasons(role, text)) state.materialReasons.add(reason);
       }
     } catch (error) {
       await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "message-scan-failed", sessionID, error: error instanceof Error ? error.message : String(error) });
@@ -234,10 +443,19 @@ export class AutoUpdateManager {
     state.inFlight = true;
     const reasons = [...state.materialReasons];
     const toolEvents = [...state.toolEvents];
+    const updateInput = {
+      latestUserRequest: state.latestUserRequest,
+      assistantFinalText: state.assistantFinalText,
+      decisions: [...state.decisions],
+      nextActions: [...state.nextActions],
+      blockers: [...state.blockers],
+      verificationOutputs: [...state.verificationOutputs]
+    };
     state.materialReasons.clear();
     state.toolEvents = [];
+    state.verificationOutputs = [];
     await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "evaluated", sessionID, details: { result: "maintainer_update", reasons: reasons.join(","), mode: "evaluate_every_turn" } });
-    void this.runUpdate(sessionID, reasons, toolEvents).finally(() => {
+    void this.runUpdate(sessionID, reasons, toolEvents, updateInput).finally(() => {
       state.inFlight = false;
       if (state.pendingAfterFlight || state.materialReasons.size > 0) {
         state.pendingAfterFlight = false;
@@ -249,54 +467,57 @@ export class AutoUpdateManager {
   private state(sessionID: string): SessionUpdateState {
     const existing = this.states.get(sessionID);
     if (existing) return existing;
-    const created = { inFlight: false, pendingAfterFlight: false, materialReasons: new Set<string>(), toolEvents: [] };
+    const created = { inFlight: false, pendingAfterFlight: false, materialReasons: new Set<string>(), toolEvents: [], latestUserRequest: undefined, assistantFinalText: undefined, decisions: new Set<string>(), nextActions: new Set<string>(), blockers: new Set<string>(), verificationOutputs: [] };
     this.states.set(sessionID, created);
     return created;
   }
 
-  private async runUpdate(sessionID: string, reasons: string[], toolEvents: string[]): Promise<void> {
+  private async runUpdate(sessionID: string, reasons: string[], toolEvents: string[], summary: { latestUserRequest: string | undefined; assistantFinalText: string | undefined; decisions: string[]; nextActions: string[]; blockers: string[]; verificationOutputs: string[] }): Promise<void> {
     await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "start", sessionID, details: { reasons: reasons.join(",") } });
     if (!this.input.client.session.promptAsync) {
-      await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "failed", sessionID, error: "OpenCode client does not expose session.promptAsync for maintainer update." });
+      await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "failed", sessionID, error: "OpenCode client does not expose session.promptAsync for maintainer update subtask." });
       return;
     }
-    let maintainerSessionID: string | undefined;
-    const runner = new MaintainerSubsessionRunner(this.input.client);
-    const result = await runner.run({
-      kind: "update",
-      title: `Project Context Update (@${PROJECT_CONTEXT_MAINTAINER_AGENT_ID} subagent)`,
-      callerSessionID: sessionID,
-      callerAgent: "project-context-runtime",
-      projectRoot: this.input.projectRoot,
-      goal: "Automatically maintain Project Context after a main agent turn.",
-      payload: { reasons, toolEvents }
-    }, {
-      timeoutMs: 90_000,
-      onSessionCreated: (createdSessionID) => {
-        maintainerSessionID = createdSessionID;
-        this.ignoreSession(createdSessionID);
+    try {
+      const engineering = await collectEngineeringSnapshot(this.input.projectRoot);
+      const payload = buildUpdatePayload({ reasons, toolEvents, ...summary, ...engineering });
+      const job = await writeUpdateJob(this.input.projectRoot, payload);
+      await this.input.client.session.promptAsync({
+        path: { id: sessionID },
+        body: {
+          parts: [{
+            type: "subtask",
+            agent: PROJECT_CONTEXT_MAINTAINER_AGENT_ID,
+            command: "project_context_update",
+            description: "Project Context update",
+            prompt: renderUpdateSubtaskPrompt({ jobID: job.jobID, jobFile: job.relativePath })
+          }]
+        },
+        query: { directory: this.input.projectRoot, workspace: this.input.projectRoot }
+      });
+      await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "task-card-launched", sessionID, details: { reasons: reasons.join(","), agent: PROJECT_CONTEXT_MAINTAINER_AGENT_ID, jobID: job.jobID } });
+    } catch (error) {
+      await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "failed", sessionID, error: error instanceof Error ? error.message : String(error), details: { reasons: reasons.join(",") } });
+      if (this.input.client.session.prompt) {
+        await this.appendVisibleUpdateStatus(sessionID, "failed", error instanceof Error ? error.message : String(error));
       }
-    });
-    await this.appendVisibleUpdateStatus(sessionID, result.ok ? "completed" : "failed", maintainerSessionID ?? result.sessionID, result.ok ? undefined : result.error);
-    await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: result.ok ? "completed" : "failed", sessionID, ...(maintainerSessionID ? { details: { maintainerSessionID, reasons: reasons.join(",") } } : { details: { reasons: reasons.join(",") } }), error: result.ok ? undefined : result.error });
+    }
   }
 
-  private async appendVisibleUpdateStatus(parentSessionID: string, status: "completed" | "failed", maintainerSessionID: string | undefined, error: string | undefined): Promise<void> {
+  private async appendVisibleUpdateStatus(parentSessionID: string, status: "failed", error: string | undefined): Promise<void> {
     if (!this.input.client.session.prompt) {
       await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "visible-status-unavailable", sessionID: parentSessionID, error: "OpenCode client does not expose session.prompt noReply for visible update status." });
       return;
     }
     const text = [
-      status === "completed"
-        ? `Project Context update · completed${maintainerSessionID ? ` · maintainer session ${maintainerSessionID} ↗` : ""}`
-        : `Project Context update · failed · using previous context${maintainerSessionID ? ` · details ${maintainerSessionID} ↗` : ""}`,
+      "Project Context update · failed · using previous context",
       error ? `- Error: ${error}` : undefined
     ].filter((line): line is string => typeof line === "string").join("\n");
     await this.input.client.session.prompt({
       path: { id: parentSessionID },
       body: {
         noReply: true,
-        parts: [{ type: "text", text, synthetic: true, metadata: { kind: "project_context_update_status", status, maintainerSessionID } }]
+        parts: [{ type: "text", text, ignored: true, metadata: { kind: "project_context_update_status", status } }]
       },
       query: { directory: this.input.projectRoot, workspace: this.input.projectRoot }
     });

@@ -184,7 +184,13 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
         async status() {
           return { "maintainer-session": { type: "idle" } };
         },
-        async messages() {
+        async messages(input) {
+          if (input?.path?.id === "parent-session") {
+            return [
+              { role: "user", parts: [{ type: "text", text: "Please run tests and update the implementation." }] },
+              { role: "assistant", parts: [{ type: "text", text: "已实现 auto update。决定采用 subtask Task card。下一步补充 Desktop smoke test。npm test passed." }] }
+            ];
+          }
           return [{ role: "assistant", parts: [{ type: "text", text: `Maintainer result from ${CONTEXT_DIR}/HANDOFF.md` }] }];
         }
       }
@@ -206,7 +212,17 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     assert.ok(config.watcher.ignore.includes(`${CONTEXT_DIR}/cache/**`));
 
     await assert.rejects(() => hooks["tool.execute.before"]({ tool: "task", sessionID: "s", callID: "c" }, { args: { subagent_type: "project-context-maintainer" } }), /Do not invoke/);
-    await hooks["tool.execute.before"]({ tool: "task", sessionID: "s", callID: "internal-update" }, { args: { subagent_type: "project-context-maintainer", command: "project_context_update" } });
+    await assert.rejects(() => hooks["tool.execute.before"]({ tool: "task", sessionID: "s", callID: "spoofed-update" }, { args: { subagent_type: "project-context-maintainer", command: "project_context_update" } }), /Do not invoke/);
+    const internalUpdatePrompt = [
+      "Project Context Maintainer job: update",
+      "",
+      "Job ID: update-test-12345678",
+      `Job payload file: ${CONTEXT_DIR}/cache/update-jobs/update-test-12345678.json`,
+      "",
+      "Instruction:",
+      "- Update only the private Project Context scaffold/workspace."
+    ].join("\n");
+    await hooks["tool.execute.before"]({ tool: "task", sessionID: "s", callID: "internal-update" }, { args: { subagent_type: "project-context-maintainer", command: "project_context_update", prompt: internalUpdatePrompt } });
     await assert.rejects(() => hooks["tool.execute.before"]({ tool: "project_context_search", sessionID: "child-session", callID: "c", agent: "worker" }, { args: { goal: "x" } }), /root primary-agent sessions/);
     await assert.rejects(() => hooks["tool.execute.before"]({ tool: "project_context_search", sessionID: "maintainer-session", callID: "c", agent: "project-context-maintainer" }, { args: { goal: "x" } }), /must not call project_context/);
     await assert.rejects(() => hooks["tool.execute.before"]({ tool: "read", sessionID: "s", callID: "c", agent: "coding-leader" }, { args: { filePath: `${CONTEXT_DIR}/HANDOFF.md` } }), /Project Context workspace is private/);
@@ -220,10 +236,13 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
     const visiblePrepare = { message: { id: "msg-visible-prepare", sessionID: "parent-session", role: "user" }, parts: [] };
     await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, visiblePrepare);
-    assert.equal(visiblePrepare.parts.length, 1);
-    assert.match(visiblePrepare.parts[0].text, /Project Context prepared · compact · revision/);
-    assert.equal(visiblePrepare.parts[0].synthetic, true);
-    assert.doesNotMatch(visiblePrepare.parts[0].text, /\.crewbee\/\.prjctxt|STATE\.yaml|HANDOFF\.md|PLAN\.yaml|observations/);
+    assert.equal(visiblePrepare.parts.length, 0);
+    assert.equal(promptCalls, 1);
+    assert.equal(promptInputs[0].body.noReply, true);
+    assert.match(promptInputs[0].body.parts[0].text, /Project Context prepared · compact · revision/);
+    assert.equal(promptInputs[0].body.parts[0].synthetic, undefined);
+    assert.equal(promptInputs[0].body.parts[0].ignored, true);
+    assert.doesNotMatch(promptInputs[0].body.parts[0].text, /\.crewbee\/\.prjctxt|STATE\.yaml|HANDOFF\.md|PLAN\.yaml|observations/);
     const rootSystem = { system: [] };
     await hooks["experimental.chat.system.transform"]({ sessionID: "parent-session", model: {} }, rootSystem);
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -231,7 +250,7 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     assert.match(rootSystem.system[0], /Project Context is prepared automatically/);
     assert.match(rootSystem.system[0], /Project Context Brief/);
     assert.doesNotMatch(rootSystem.system[0], /\.crewbee\/\.prjctxt|STATE\.yaml|HANDOFF\.md|PLAN\.yaml|observations/);
-    assert.equal(promptCalls, 0);
+    assert.equal(promptCalls, 1);
     const followupSystem = { system: [] };
     await hooks["experimental.chat.system.transform"]({ sessionID: "parent-session", model: {} }, followupSystem);
     assert.equal(followupSystem.system.length, 1);
@@ -243,8 +262,9 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     assert.match(revisionSystem.system[0], /Project Context Brief/);
     const revisionVisiblePrepare = { message: { id: "msg-visible-prepare-revision", sessionID: "parent-session", role: "user" }, parts: [] };
     await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, revisionVisiblePrepare);
-    assert.equal(revisionVisiblePrepare.parts.length, 1);
-    assert.match(revisionVisiblePrepare.parts[0].text, /Project Context prepared · compact · revision/);
+    assert.equal(revisionVisiblePrepare.parts.length, 0);
+    assert.equal(promptCalls, 2);
+    assert.match(promptInputs[1].body.parts[0].text, /Project Context prepared · compact · revision/);
     const duplicateVisiblePrepare = { message: { id: "msg-visible-prepare-duplicate", sessionID: "parent-session", role: "user" }, parts: [] };
     await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, duplicateVisiblePrepare);
     assert.equal(duplicateVisiblePrepare.parts.length, 0);
@@ -254,8 +274,9 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     assert.match(systemFirstSystem.system[0], /Project Context Brief/);
     const systemFirstVisiblePrepare = { message: { id: "msg-visible-prepare-system-first", sessionID: "system-first-session", role: "user" }, parts: [] };
     await hooks["chat.message"]({ sessionID: "system-first-session", agent: "coding-leader" }, systemFirstVisiblePrepare);
-    assert.equal(systemFirstVisiblePrepare.parts.length, 1);
-    assert.match(systemFirstVisiblePrepare.parts[0].text, /Project Context prepared · compact · revision/);
+    assert.equal(systemFirstVisiblePrepare.parts.length, 0);
+    assert.equal(promptCalls, 3);
+    assert.match(promptInputs[2].body.parts[0].text, /Project Context prepared · compact · revision/);
     const childSystem = { system: [] };
     await hooks["experimental.chat.system.transform"]({ sessionID: "child-session", model: {} }, childSystem);
     assert.equal(childSystem.system.length, 0);
@@ -275,16 +296,55 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     await hooks["tool.execute.before"]({ tool: "bash", sessionID: "parent-session", callID: "test", agent: "coding-leader" }, { args: { command: "npm test" } });
     await hooks["tool.execute.after"]({ tool: "bash", sessionID: "parent-session", callID: "test", agent: "coding-leader" }, { result: "ok" });
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, 120));
     assert.equal(promptAsyncCalls, 2);
-    assert.equal(createCalls, 2);
-    const updateInput = promptAsyncInputs.find((input) => input.path.id === "maintainer-session" && input.body.parts?.[0]?.text?.includes("Project Context Maintainer job: update"));
+    assert.equal(createCalls, 1);
+    const updateInput = promptAsyncInputs.find((input) => input.path.id === "parent-session" && input.body.parts?.[0]?.type === "subtask" && input.body.parts[0].prompt?.includes("Project Context Maintainer job: update"));
     assert.ok(updateInput);
-    assert.equal(updateInput.body.agent, "project-context-maintainer");
-    assert.match(updateInput.body.parts[0].text, /Material change reasons|Payload JSON/);
-    assert.equal(promptCalls, 1);
-    assert.match(promptInputs[0].body.parts[0].text, /Project Context update · completed · maintainer session maintainer-session ↗/);
-    assert.equal(promptInputs[0].body.noReply, true);
+    assert.equal(updateInput.query.directory, root);
+    assert.equal(updateInput.query.workspace, root);
+    assert.equal(updateInput.body.agent, undefined);
+    assert.equal(updateInput.body.tools, undefined);
+    assert.equal(updateInput.body.parts.length, 1);
+    const updatePart = updateInput.body.parts[0];
+    assert.equal(updatePart.type, "subtask");
+    assert.equal(updatePart.agent, "project-context-maintainer");
+    assert.equal(updatePart.command, "project_context_update");
+    assert.equal(updatePart.description, "Project Context update");
+    assert.match(updatePart.prompt, /Job payload file: \.crewbee\/\.prjctxt\/cache\/update-jobs\/update-[^\s]+\.json/);
+    assert.doesNotMatch(updatePart.prompt, /latest user request: Please run tests and update the implementation|assistant final summary|git status summary|git diff summary|verification commands|=> ok|决定采用 subtask Task card/);
+    assert.match(updatePart.prompt, /Instruction:/);
+    assert.match(updatePart.prompt, /Read the JSON payload from the job payload file before updating context/);
+    assert.match(updatePart.prompt, /Update only the private Project Context scaffold/);
+    const jobFile = updatePart.prompt.match(/Job payload file:\s*(.+)$/m)?.[1].trim();
+    assert.ok(jobFile);
+    assert.match(jobFile, /^\.crewbee\/\.prjctxt\/cache\/update-jobs\/update-[A-Za-z0-9-]+\.json$/);
+    const jobPayload = JSON.parse(await readFile(path.join(root, jobFile), "utf8"));
+    assert.match(jobPayload.jobID, /^update-[A-Za-z0-9-]+$/);
+    assert.equal(typeof jobPayload.createdAt, "string");
+    assert.ok(jobPayload.payload.trigger.reasons.includes("verification"));
+    assert.ok(jobPayload.payload.trigger.reasons.includes("decision"));
+    assert.ok(jobPayload.payload.trigger.reasons.includes("plan_or_next_actions"));
+    assert.ok(jobPayload.payload.trigger.reasons.includes("implementation_state"));
+    assert.deepEqual(jobPayload.payload.trigger.toolEvents, ["bash:verification"]);
+    assert.match(jobPayload.payload.parentSessionSummary.latestUserRequest, /Please run tests and update the implementation/);
+    assert.match(jobPayload.payload.parentSessionSummary.assistantFinalText, /决定采用 subtask Task card/);
+    assert.match(jobPayload.payload.parentSessionSummary.decisions[0], /决定采用 subtask Task card/);
+    assert.match(jobPayload.payload.parentSessionSummary.nextActions[0], /下一步补充 Desktop smoke test/);
+    assert.equal(Array.isArray(jobPayload.payload.engineeringChanges.changedFiles), true);
+    assert.equal(typeof jobPayload.payload.engineeringChanges.gitStatusSummary, "string");
+    assert.equal(typeof jobPayload.payload.engineeringChanges.gitDiffSummary, "string");
+    assert.match(jobPayload.payload.engineeringChanges.verificationOutputs[0], /=> ok/);
+    assert.match(jobPayload.payload.instruction.join("\n"), /Update only the private Project Context scaffold\/workspace/);
+    assert.equal(promptCalls, 3);
+
+    await hooks["tool.execute.after"]({ tool: "task", sessionID: "parent-session", callID: "internal-update", agent: "coding-leader", args: { subagent_type: "project-context-maintainer", command: "project_context_update", prompt: updatePart.prompt } }, { result: "done" });
+    await assert.rejects(() => readFile(path.join(root, jobFile), "utf8"), /ENOENT/);
+    const siblingPayload = contextPath(root, "cache", "sibling.json");
+    await writeFile(siblingPayload, "keep", "utf8");
+    const traversalPrompt = updatePart.prompt.replace(/Job payload file:.+$/m, `Job payload file: ${CONTEXT_DIR}/cache/update-jobs/../sibling.json`);
+    await hooks["tool.execute.after"]({ tool: "task", sessionID: "parent-session", callID: "bad-internal-update", agent: "coding-leader", args: { subagent_type: "project-context-maintainer", command: "project_context_update", prompt: traversalPrompt } }, { result: "done" });
+    assert.equal(await readFile(siblingPayload, "utf8"), "keep");
 
     await hooks.event({ event: { type: "message.updated", properties: { sessionID: "maintainer-session", info: { role: "assistant" }, parts: [{ type: "text", text: "决定更新内部上下文。" }] } } });
     await hooks.event({ event: { type: "session.status", properties: { sessionID: "maintainer-session", status: { type: "idle" } } } });
@@ -293,15 +353,29 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
 
     await hooks.event({ event: { type: "message.updated", properties: { sessionID: "parent-session", info: { role: "assistant" }, parts: [{ type: "text", text: "决定采用 auto update，下一步补充验证。" }] } } });
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, 120));
     assert.equal(promptAsyncCalls, 3);
-    assert.equal(promptCalls, 2);
+    assert.equal(promptCalls, 3);
+    const updateSubtasksAfterSecondTurn = promptAsyncInputs.filter((input) => input.path.id === "parent-session" && input.body.parts?.[0]?.type === "subtask" && input.body.parts[0].command === "project_context_update");
+    assert.equal(updateSubtasksAfterSecondTurn.length, 2);
+    const secondJobFile = updateSubtasksAfterSecondTurn[1].body.parts[0].prompt.match(/Job payload file:\s*(.+)$/m)?.[1].trim();
+    assert.ok(secondJobFile);
+    assert.notEqual(secondJobFile, jobFile);
+    assert.match(JSON.parse(await readFile(path.join(root, secondJobFile), "utf8")).payload.parentSessionSummary.assistantFinalText, /决定采用 auto update/);
 
     await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, { message: { info: { role: "user" } }, parts: [{ type: "text", text: "请更新上下文。" }] });
     await hooks.event({ event: { type: "session.status", properties: { info: { id: "parent-session" }, status: { type: "idle" } } } });
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, 120));
     assert.equal(promptAsyncCalls, 4);
     assert.equal(promptCalls, 3);
+    const updateSubtasksAfterThirdTurn = promptAsyncInputs.filter((input) => input.path.id === "parent-session" && input.body.parts?.[0]?.type === "subtask" && input.body.parts[0].command === "project_context_update");
+    assert.equal(updateSubtasksAfterThirdTurn.length, 3);
+    const thirdJobFile = updateSubtasksAfterThirdTurn[2].body.parts[0].prompt.match(/Job payload file:\s*(.+)$/m)?.[1].trim();
+    assert.ok(thirdJobFile);
+    assert.notEqual(thirdJobFile, jobFile);
+    assert.notEqual(thirdJobFile, secondJobFile);
+    assert.match(JSON.parse(await readFile(path.join(root, thirdJobFile), "utf8")).payload.parentSessionSummary.latestUserRequest, /请更新上下文/);
+    await new Promise((resolve) => setTimeout(resolve, 150));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

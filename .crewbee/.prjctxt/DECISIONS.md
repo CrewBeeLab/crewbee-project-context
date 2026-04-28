@@ -49,7 +49,7 @@
 
 - Status: accepted
 - Context: CrewBee already owns Agent Team projection and OpenCode runtime binding, while Project Context should own only engineering context memory and handoff state.
-- Decision: Ship `crewbee-project-context` as a sibling OpenCode plugin with root `opencode-plugin.mjs`, hidden `project-context-maintainer`, only `project_context_prepare/search/finalize` visible tools, and CrewBee-style user-level install / doctor flow.
+- Decision: Ship `crewbee-project-context` as a sibling OpenCode plugin with root `opencode-plugin.mjs`, hidden `project-context-maintainer`, automatic prepare/update, only `project_context_search` visible to the main Agent, and CrewBee-style user-level install / doctor flow.
 - Consequences:
   - Pros: Keeps CrewBee Core decoupled, preserves main-agent permissions, and makes project context installation and validation operationally consistent with CrewBee.
   - Cons: A live OpenCode startup smoke test remains required before release confidence is complete.

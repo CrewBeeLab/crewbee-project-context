@@ -6,12 +6,12 @@
 - Product scaffold directory is `.crewbee/.prjctxt/`; `.crewbee/` is not the product context directory.
 - Template source directory is `templates/prjctxt-template/`.
 - TypeScript implementation uses small object-oriented services coordinated by `ProjectContextService`.
-- Internal service supports bootstrap, doctor, capsule/brief generation, context search, safe update, and finalize.
-- CrewBee-facing compatibility bridge exposes only `project_context_prepare`, `project_context_search`, and `project_context_finalize`.
+- Internal service supports bootstrap, doctor, capsule/brief generation, context search, and safe update.
+- CrewBee-facing compatibility bridge exposes only `project_context_search`.
 - Real OpenCode plugin adapter exists under `src/integrations/opencode/`.
 - OpenCode plugin default export is an object with `server()` and bundled entrypoint is generated at `dist/opencode-plugin.mjs`.
 - OpenCode config hook injects hidden `project-context-maintainer` as `mode: subagent`.
-- OpenCode tool hook registers only `project_context_prepare`, `project_context_search`, and `project_context_finalize`.
+- OpenCode tool hook registers only `project_context_search`.
 - OpenCode system transform injects only a compact runtime rule and capsule.
 - OpenCode tool guard prevents direct Task calls to `project-context-maintainer`.
 - The plugin intentionally does not register `experimental.session.compacting`.
@@ -24,11 +24,11 @@
 - Capsule source file metadata is empty for main-agent-facing integrations.
 - OpenCode `tool.execute.before` blocks non-maintainer direct tool args containing private workspace paths, while allowing the hidden maintainer.
 - OpenCode `tool.execute.after` redacts private workspace paths from non-maintainer tool outputs.
-- OpenCode finalize tool returns path-free status text instead of internal scaffold file names.
+- No `project_context_finalize` tool is exposed; update is automatic.
 - Config hook appends watcher ignores for private cache/tmp/lock files.
 - Install doctor validates private path guard and output redactor hooks.
-- Automatic prepare stays on the fast local-I/O `experimental.chat.system.transform` path and does not write `noReply` messages into the parent session.
-- Automatic update now uses the official OpenCode subtask/Task flow: the plugin submits a `subtask` part to the parent session via `promptAsync`, OpenCode creates a clickable `task` execution card, and that card links to the Maintainer child session through `metadata.sessionId`.
+- Automatic prepare stays on the fast local-I/O `experimental.chat.system.transform` path. It computes a compact Project Context brief for model context when needed, and writes a separate Desktop-visible `noReply: true`, `ignored: true` prepare summary that does not enter later LLM context.
+- Automatic update uses the official OpenCode subtask/Task flow: after material changes, the plugin writes a one-time private update job payload under `.crewbee/.prjctxt/cache/update-jobs/`, then submits a short `subtask` part to the parent session with `agent: project-context-maintainer`, `command: project_context_update`, and the payload file reference. OpenCode then runs the maintainer as a child session through the task tool and renders the clickable Task card linked by `metadata.sessionId`. The parent prompt does not embed full request/final-summary/git/verification details; the runtime deletes the payload file after the internal task completes.
 
 ## Important Paths
 
@@ -39,7 +39,7 @@
 - `src/integrations/crewbee/`: compatibility bridge and tool handlers.
 - `src/integrations/opencode/plugin.ts`: OpenCode server plugin entry.
 - `src/integrations/opencode/config-hook.ts`: hidden maintainer agent injection and task deny.
-- `src/integrations/opencode/tools.ts`: three OpenCode tools backed by maintainer subsession runner.
+- `src/integrations/opencode/tools.ts`: search-only OpenCode tool backed by maintainer subsession runner.
 - `src/integrations/opencode/subsession-runner.ts`: OpenCode client session.create / session.prompt based maintainer runner.
 - `src/integrations/opencode/system-transform-hook.ts`: compact system prompt injection.
 - `src/integrations/opencode/tool-guard.ts`: direct Task maintainer guard.
@@ -52,8 +52,8 @@
 
 ## Known Gaps
 
-- End-to-end OpenCode startup smoke test with both `crewbee` and `crewbee-project-context` configured is still pending.
-- Maintainer subsession runner is implemented against OpenCode client shape and covered by unit-style tests, but not yet validated against a live OpenCode runtime.
+- End-to-end OpenCode Desktop smoke test with both `crewbee` and `crewbee-project-context` configured is still pending.
+- Maintainer subsession runner and auto-update subtask flow are implemented against OpenCode client shape and covered by unit-style tests, but not yet validated against a live OpenCode Desktop runtime.
 - GitHub release v0.1.0 is not completed in this environment because the `gh` CLI is unavailable.
 
 ## Verification Commands
@@ -67,10 +67,10 @@ npm run build
 
 ## Last Verified
 
-- Checkpoint: pending CP-0012 closeout
-- Status: in progress
+- Checkpoint: CP-0015 / update job payload indirection
+- Status: verified by local diagnostics, tests, typecheck, and build
 - Evidence so far:
-  - `npm run diagnostics` passed after private workspace visibility implementation.
-  - `npm run typecheck` passed after private workspace visibility implementation.
-  - `npm test` passed with 18 tests after private workspace visibility implementation.
-  - `npm run build` passed after private workspace visibility implementation.
+  - `npm run diagnostics` passed after prepare/update Desktop observability and private update job payload implementation.
+  - `npm test` passed with 20 tests after prepare/update Desktop observability and private update job payload implementation.
+  - `npm run typecheck` passed after prepare/update Desktop observability and private update job payload implementation.
+  - `npm run build` passed after prepare/update Desktop observability and private update job payload implementation.

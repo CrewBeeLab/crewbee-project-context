@@ -74,7 +74,7 @@ tool.execute.after
 
 It intentionally does not use `experimental.session.compacting`; initialization and prepare are handled by system transform, while update is handled by chat/message, tool, and session events.
 
-`experimental.chat.system.transform` is only a model-context hook and does not by itself create a visible Desktop session message. Project Context therefore uses `chat.message` to append a synthetic main-session prepare summary while still using system transform to inject the compact brief into the model context. If OpenCode later provides a first-class system/status message type, Project Context should move this visible prepare message to that API.
+`experimental.chat.system.transform` is only a model-context hook and does not by itself create a visible Desktop session message. Project Context therefore uses `chat.message` as the lifecycle signal and writes a separate `session.prompt({ noReply: true })` prepare summary with `ignored: true`. Desktop can show that summary as a normal session message, while OpenCode excludes it from later model messages. The compact brief itself is still injected by system transform when prepare is needed.
 
 ## Private workspace visibility
 
@@ -116,19 +116,24 @@ On the first root-session prompt, `experimental.chat.system.transform` checks wh
 
 ## Automatic prepare
 
-`chat.message` and `experimental.chat.system.transform` jointly implement prepare. The visible side appends a short synthetic main-session chat message such as `Project Context prepared · compact · revision ...`; the model side injects the runtime rule and compact Project Context Brief. Prepare does not call a model, does not create a subsession, and does not expose private workspace paths. The implementation tracks visible and system revisions separately so a system-transform-first or revision-change path cannot suppress the required visible prepare message.
+`chat.message` and `experimental.chat.system.transform` jointly implement prepare. The visible side writes a short no-reply, ignored main-session status message such as `Project Context prepared · compact · revision ...`; the model side injects the runtime rule and compact Project Context Brief. Prepare does not call a model, does not create a subsession, and does not expose private workspace paths. The implementation tracks visible and system revisions separately so a system-transform-first or revision-change path cannot suppress the required visible prepare message.
 
 ## Automatic update
 
 The `event` hook listens for `session.idle` and `session.status` with `status.type === "idle"`. `chat.message` records explicit user context-update intent. `tool.execute.before` captures tool args by `sessionID + callID`; `tool.execute.after` consumes the captured call and records material signals such as file edits, verification commands, and search usage. On every idle turn, auto update scans recent session messages and records an `evaluated` runtime event. No-material turns are evaluated and skipped; durable project changes start a hidden maintainer update job.
 
-Update is launched by creating a parent-linked hidden maintainer child session and prompting `project-context-maintainer` there. The main Agent never receives `project_context_update` as a tool and cannot directly Task the maintainer. After the maintainer job completes or fails, Project Context appends a synthetic `session.prompt(noReply: true)` status message to the parent session, for example `Project Context update · completed · maintainer session ... ↗`. The next auto prepare reads the updated context.
+Update is launched by submitting a `subtask` part to the parent session with `agent: project-context-maintainer` and `command: project_context_update`. OpenCode handles that through its official task-tool flow: it creates a parent-linked hidden maintainer child session, executes the maintainer Agent there, and renders a clickable Task card in the parent Desktop session via `metadata.sessionId`. The subtask prompt is intentionally short: it references a one-time private JSON payload under `.crewbee/.prjctxt/cache/update-jobs/` instead of embedding the latest user request, assistant conclusion, git summaries, or verification output into the parent session. The runtime deletes that payload after the internal update task completes. The main Agent never receives `project_context_update` as a visible tool and cannot directly Task the maintainer outside this internal command. The next auto prepare reads the updated context.
 
 ## Maintainer execution
 
 ```text
-auto init, auto update, or project_context_search
+auto init or project_context_search
   -> crewbee-project-context plugin creates OpenCode subsession
+auto update
+  -> crewbee-project-context plugin submits parent-session subtask part
+  -> plugin writes one-time private update job payload
+  -> OpenCode task tool creates linked maintainer child session
+  -> maintainer reads the private update job payload
   -> hidden project-context-maintainer runs with restricted permissions
   -> maintainer initializes/searches/updates the private workspace
   -> plugin runs doctor after update jobs
@@ -137,7 +142,7 @@ auto init, auto update, or project_context_search
 
 No status, cancel, or streaming interface is exposed to the main Agent for maintainer jobs in V1.
 
-The parent session receives only a compact status message, not the maintainer transcript. The maintainer prompt, private workspace paths, and detailed scaffold edits remain inside the child session/private workspace boundary. Current OpenCode Desktop may not make the synthetic `↗` session reference truly clickable; if not, that is an OpenCode/Desktop capability gap to close with a first-class child-session reference/status card.
+The parent session receives the official Task card for auto update, not the maintainer transcript. The maintainer prompt, private workspace paths, and detailed scaffold edits remain inside the child session/private workspace boundary, while Desktop can navigate from the card to the child session record.
 
 ## Non-goals
 
