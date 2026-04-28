@@ -18,8 +18,8 @@ function projectRoot(input: OpenCodePluginInputLike): string {
 export async function server(ctx: OpenCodePluginInputLike) {
   const root = projectRoot(ctx);
   const service = new ProjectContextService(root);
+  const autoPrepare = createProjectContextSystemTransformHook({ service, client: ctx.client, projectRoot: root });
   const autoUpdate = new AutoUpdateManager({ client: ctx.client, service, projectRoot: root });
-  const autoPrepare = createProjectContextSystemTransformHook({ service, client: ctx.client, projectRoot: root, onMaintainerSessionCreated: (sessionID) => autoUpdate.ignoreSession(sessionID) });
   const redactOutput = createProjectContextToolOutputRedactor();
   const guardTool = createProjectContextToolGuard({
     client: ctx.client,

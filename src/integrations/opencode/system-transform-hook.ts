@@ -236,6 +236,20 @@ function hasPrepareMetadata(value: unknown): boolean {
   return Object.values(record).some(hasPrepareMetadata);
 }
 
+function readRole(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (typeof record.role === "string") return record.role;
+  for (const key of ["message", "info", "properties"]) {
+    const nested = record[key];
+    if (typeof nested === "object" && nested !== null && !Array.isArray(nested)) {
+      const role = readRole(nested);
+      if (role !== undefined) return role;
+    }
+  }
+  return undefined;
+}
+
 function collectText(value: unknown, output: string[]): void {
   if (typeof value === "string") {
     output.push(value);
@@ -269,18 +283,19 @@ export function createProjectContextSystemTransformHook(input: { service: Projec
     try {
       let surface: PrepareStatusSurface | undefined;
       try {
-        surface = await showPrepareSummaryMessage({ client: input.client, sessionID, projectRoot: input.projectRoot, summary });
-      } catch (error) {
-        await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "visible-prepare-message-failed", sessionID, error: error instanceof Error ? error.message : String(error) });
-      }
-      const appendedChatPart = surface === undefined && output !== undefined ? appendPrepareSummaryPart({ sessionID, messageID, output, summary }) : false;
-      if (appendedChatPart) surface = "chat.message.synthetic";
-      try {
-        const toastSurface = await showPrepareStatus({ client: input.client, summary });
-        if (toastSurface === "tui.toast") surface = surface === "session.prompt.noReply" ? "session.prompt.noReply+tui.toast" : surface === "chat.message.synthetic" ? "tui.toast+chat.message.synthetic" : "tui.toast";
+        surface = await showPrepareStatus({ client: input.client, summary });
       } catch (error) {
         await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "visible-prepare-toast-failed", sessionID, error: error instanceof Error ? error.message : String(error) });
       }
+      if (surface === undefined) {
+        try {
+          surface = await showPrepareSummaryMessage({ client: input.client, sessionID, projectRoot: input.projectRoot, summary });
+        } catch (error) {
+          await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "visible-prepare-message-failed", sessionID, error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      const appendedChatPart = surface === undefined && output !== undefined ? appendPrepareSummaryPart({ sessionID, messageID, output, summary }) : false;
+      if (appendedChatPart) surface = "chat.message.synthetic";
       preparedSessions.set(sessionID, { ...state, visibleRevision: state.revision, visibleSummaryPending: undefined, visibleFlushInFlight: false });
       await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: surface === undefined ? "visible-prepare-unavailable" : "visible-prepare-status", sessionID, ...(surface !== undefined ? { details: { mode, revision: revisionLabel(state.revision), surface } } : { error: "OpenCode client does not expose tui.showToast/tui.publish and chat.message output was unavailable for assistant-side prepare status." }) });
     } catch (error) {
@@ -322,6 +337,7 @@ export function createProjectContextSystemTransformHook(input: { service: Projec
   };
   hook.visibleChatMessage = async (hookInput: { sessionID?: string; messageID?: string; agent?: string; model?: unknown }, output: { message?: unknown; parts?: unknown[] }): Promise<void> => {
     if (isPrepareRuntimeMessage(output)) return;
+    if ((readRole(output) ?? readRole(output.message)) !== "user") return;
     if (!(await shouldInjectProjectContext(hookInput, input.client, input.projectRoot))) return;
     await ensureProjectContextInitialized({
       service: input.service,
@@ -354,8 +370,7 @@ export function createProjectContextSystemTransformHook(input: { service: Projec
     if (type !== "session.idle" && !(type === "session.status" && readStatusType(eventInput.event) === "idle")) return;
     const sessionID = readSessionID(eventInput.event);
     if (!sessionID) return;
-    if (!(await shouldInjectProjectContext({ sessionID }, input.client, input.projectRoot))) return;
-    await flushVisiblePrepare(sessionID, "idle");
+    await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "skip-visible-prepare-idle", sessionID });
   };
   hook.transformMessages = (output: { messages: { info?: unknown; parts?: unknown[] }[] }): void => {
     output.messages = output.messages.flatMap((message) => {
