@@ -92,10 +92,14 @@ function readString(value: unknown, key: string): string | undefined {
   const record = value as Record<string, unknown>;
   const direct = record[key];
   if (typeof direct === "string") return direct;
+  const info = record.info;
+  if (typeof info === "object" && info !== null && !Array.isArray(info)) {
+    const nested = readString(info, key);
+    if (nested) return nested;
+  }
   const data = record.data;
   if (typeof data !== "object" || data === null || Array.isArray(data)) return undefined;
-  const nested = (data as Record<string, unknown>)[key];
-  return typeof nested === "string" ? nested : undefined;
+  return readString(data, key);
 }
 
 function readMessageRole(value: unknown): string | undefined {

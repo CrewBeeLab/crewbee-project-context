@@ -3,7 +3,7 @@ import path from "node:path";
 import { DEFAULT_CONTEXT_DIR, SEARCHABLE_CONTEXT_FILES } from "../../core/constants.js";
 import { ProjectContextService } from "../../service/project-context-service.js";
 import { MaintainerSubsessionRunner } from "./subsession-runner.js";
-import type { OpenCodeClientLike } from "./types.js";
+import type { OpenCodeClientLike, OpenCodePromptPartLike } from "./types.js";
 import { writeRuntimeLog } from "./runtime-log.js";
 
 const RUNTIME_RULE = [
@@ -67,6 +67,36 @@ function visiblePrepareSummary(input: { revision: string; estimatedTokens: numbe
     "",
     ...(bullets.length > 0 ? bullets : [`- Brief injected for the main Agent.`, `- Estimated budget: ${input.estimatedTokens} tokens.`, `- Warnings: ${input.warnings.length}`])
   ].join("\n").replace(/\.crewbee[\\/]\.prjctxt|STATE\.yaml|HANDOFF\.md|PLAN\.yaml|observations/gi, "[project-context-private]");
+}
+
+async function appendVisiblePrepareMessage(input: { client: OpenCodeClientLike; projectRoot: string; sessionID: string; summary: string }): Promise<void> {
+  const request: { path: { id: string }; body: { noReply: boolean; parts: OpenCodePromptPartLike[] }; query: { directory: string; workspace: string } } = {
+    path: { id: input.sessionID },
+    body: {
+      noReply: true,
+      parts: [{ type: "text", text: input.summary, ignored: true, metadata: { kind: "project_context_prepare" } }]
+    },
+    query: { directory: input.projectRoot, workspace: input.projectRoot }
+  };
+  if (input.client.session.promptAsync) {
+    try {
+      await input.client.session.promptAsync(request);
+      await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "visible-prepare-message", sessionID: input.sessionID, details: { mode: "promptAsync", summary: input.summary.split("\n")[0] ?? "Project Context prepared" } });
+    } catch (error) {
+      await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "visible-prepare-failed", sessionID: input.sessionID, error: error instanceof Error ? error.message : String(error) });
+    }
+    return;
+  }
+  if (!input.client.session.prompt) {
+    await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "visible-prepare-unavailable", sessionID: input.sessionID, error: "OpenCode client does not expose session.promptAsync/session.prompt for visible prepare status." });
+    return;
+  }
+  try {
+    await input.client.session.prompt(request);
+    await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "visible-prepare-message", sessionID: input.sessionID, details: { mode: "prompt", summary: input.summary.split("\n")[0] ?? "Project Context prepared" } });
+  } catch (error) {
+    await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "visible-prepare-failed", sessionID: input.sessionID, error: error instanceof Error ? error.message : String(error) });
+  }
 }
 
 async function shouldInjectProjectContext(input: { sessionID?: string }, client: OpenCodeClientLike, projectRoot: string): Promise<boolean> {
@@ -169,24 +199,11 @@ export function createProjectContextSystemTransformHook(input: { service: Projec
       briefText: brief.text,
       systemBriefPending: previous?.revision === revision ? previous.systemBriefPending === true : true
     });
-    if (!input.client.session.prompt) {
-      await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "visible-prepare-unavailable", sessionID, error: "OpenCode client does not expose session.prompt noReply for visible prepare summary." });
-      return;
-    }
-    await input.client.session.prompt({
-      path: { id: sessionID },
-      body: {
-        noReply: true,
-        parts: [{
-          type: "text",
-          ignored: true,
-          metadata: { kind: "project_context_prepare", revision: revisionLabel(revision) },
-          text: visiblePrepareSummary({ revision, estimatedTokens: brief.estimatedTokens, warnings: brief.warnings, briefText: brief.text })
-        }]
-      },
-      query: { directory: input.projectRoot, workspace: input.projectRoot }
-    });
-    await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "visible-prepare-message", sessionID, details: { estimatedTokens: brief.estimatedTokens, warnings: brief.warnings.length } });
+    const summary = visiblePrepareSummary({ revision, estimatedTokens: brief.estimatedTokens, warnings: brief.warnings, briefText: brief.text });
+    setTimeout(() => {
+      void appendVisiblePrepareMessage({ client: input.client, projectRoot: input.projectRoot, sessionID, summary });
+    }, 250);
+    await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "visible-prepare-ready", sessionID, details: { estimatedTokens: brief.estimatedTokens, warnings: brief.warnings.length, summary: summary.split("\n")[0] ?? "Project Context prepared" } });
   };
   return hook;
 }

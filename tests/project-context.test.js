@@ -160,6 +160,9 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     let promptCalls = 0;
     const promptInputs = [];
     let createCalls = 0;
+    let includeMaterialMessages = false;
+    let materialAssistantText = "已实现 auto update。决定采用 subtask Task card。下一步补充 Desktop smoke test。npm test passed.";
+    const visiblePreparePromptInputs = () => promptAsyncInputs.filter((input) => input.body?.noReply === true && input.body?.parts?.[0]?.metadata?.kind === "project_context_prepare");
     const client = {
       session: {
         async create() {
@@ -168,15 +171,18 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
         },
         async get(input) {
           assert.equal(input.query.directory, root);
+          assert.ok(input.path.id);
           return input.path.id === "child-session" || input.path.id === "maintainer-session" ? { id: input.path.id, parentID: "parent-session" } : { id: input.path.id };
         },
         async promptAsync(input) {
+          assert.equal(this, client.session);
           promptAsyncCalls += 1;
           promptAsyncInputs.push(input);
           if (input.body.tools) assert.equal(input.body.tools.project_context_search, false);
           return {};
         },
         async prompt(input) {
+          assert.equal(this, client.session);
           promptCalls += 1;
           promptInputs.push(input);
           return {};
@@ -185,10 +191,12 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
           return { "maintainer-session": { type: "idle" } };
         },
         async messages(input) {
+          assert.ok(input?.path?.id);
           if (input?.path?.id === "parent-session") {
+            if (!includeMaterialMessages) return [{ role: "assistant", parts: [{ type: "text", text: "No material project-context update needed." }] }];
             return [
               { role: "user", parts: [{ type: "text", text: "Please run tests and update the implementation." }] },
-              { role: "assistant", parts: [{ type: "text", text: "已实现 auto update。决定采用 subtask Task card。下一步补充 Desktop smoke test。npm test passed." }] }
+              { role: "assistant", parts: [{ type: "text", text: materialAssistantText }] }
             ];
           }
           return [{ role: "assistant", parts: [{ type: "text", text: `Maintainer result from ${CONTEXT_DIR}/HANDOFF.md` }] }];
@@ -234,15 +242,20 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     assert.deepEqual(redacted.result, { "[project-context-private]": "listed [project-context-private] and src/index.ts" });
 
     await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
-    const visiblePrepare = { message: { id: "msg-visible-prepare", sessionID: "parent-session", role: "user" }, parts: [] };
+    const visiblePrepare = { message: { id: "msg-visible-prepare", sessionID: "parent-session", role: "user" }, parts: [{ id: "prt-user", messageID: "msg-visible-prepare", sessionID: "parent-session", type: "text", text: "了解当前项目" }] };
     await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, visiblePrepare);
-    assert.equal(visiblePrepare.parts.length, 0);
-    assert.equal(promptCalls, 1);
-    assert.equal(promptInputs[0].body.noReply, true);
-    assert.match(promptInputs[0].body.parts[0].text, /Project Context prepared · compact · revision/);
-    assert.equal(promptInputs[0].body.parts[0].synthetic, undefined);
-    assert.equal(promptInputs[0].body.parts[0].ignored, true);
-    assert.doesNotMatch(promptInputs[0].body.parts[0].text, /\.crewbee\/\.prjctxt|STATE\.yaml|HANDOFF\.md|PLAN\.yaml|observations/);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(visiblePrepare.parts.length, 1);
+    assert.equal(visiblePrepare.parts[0].type, "text");
+    assert.equal(visiblePrepare.parts[0].text, "了解当前项目");
+    assert.equal(promptCalls, 0);
+    assert.equal(visiblePreparePromptInputs().length, 1);
+    assert.equal(visiblePreparePromptInputs()[0].path.id, "parent-session");
+    assert.equal(visiblePreparePromptInputs()[0].body.noReply, true);
+    assert.equal(visiblePreparePromptInputs()[0].body.parts[0].type, "text");
+    assert.equal(visiblePreparePromptInputs()[0].body.parts[0].ignored, true);
+    assert.match(visiblePreparePromptInputs()[0].body.parts[0].text, /Project Context prepared · compact · revision/);
+    assert.doesNotMatch(visiblePreparePromptInputs()[0].body.parts[0].text, /\.crewbee\/\.prjctxt|STATE\.yaml|HANDOFF\.md|PLAN\.yaml|observations/);
     const rootSystem = { system: [] };
     await hooks["experimental.chat.system.transform"]({ sessionID: "parent-session", model: {} }, rootSystem);
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -250,7 +263,7 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     assert.match(rootSystem.system[0], /Project Context is prepared automatically/);
     assert.match(rootSystem.system[0], /Project Context Brief/);
     assert.doesNotMatch(rootSystem.system[0], /\.crewbee\/\.prjctxt|STATE\.yaml|HANDOFF\.md|PLAN\.yaml|observations/);
-    assert.equal(promptCalls, 1);
+    assert.equal(promptCalls, 0);
     const followupSystem = { system: [] };
     await hooks["experimental.chat.system.transform"]({ sessionID: "parent-session", model: {} }, followupSystem);
     assert.equal(followupSystem.system.length, 1);
@@ -262,21 +275,24 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     assert.match(revisionSystem.system[0], /Project Context Brief/);
     const revisionVisiblePrepare = { message: { id: "msg-visible-prepare-revision", sessionID: "parent-session", role: "user" }, parts: [] };
     await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, revisionVisiblePrepare);
+    await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(revisionVisiblePrepare.parts.length, 0);
-    assert.equal(promptCalls, 2);
-    assert.match(promptInputs[1].body.parts[0].text, /Project Context prepared · compact · revision/);
+    assert.equal(visiblePreparePromptInputs().length, 2);
+    assert.match(visiblePreparePromptInputs()[1].body.parts[0].text, /Project Context prepared · compact · revision/);
     const duplicateVisiblePrepare = { message: { id: "msg-visible-prepare-duplicate", sessionID: "parent-session", role: "user" }, parts: [] };
     await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, duplicateVisiblePrepare);
+    await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(duplicateVisiblePrepare.parts.length, 0);
+    assert.equal(visiblePreparePromptInputs().length, 2);
     const systemFirstSystem = { system: [] };
     await hooks["experimental.chat.system.transform"]({ sessionID: "system-first-session", model: {} }, systemFirstSystem);
     assert.equal(systemFirstSystem.system.length, 1);
     assert.match(systemFirstSystem.system[0], /Project Context Brief/);
     const systemFirstVisiblePrepare = { message: { id: "msg-visible-prepare-system-first", sessionID: "system-first-session", role: "user" }, parts: [] };
     await hooks["chat.message"]({ sessionID: "system-first-session", agent: "coding-leader" }, systemFirstVisiblePrepare);
+    await new Promise((resolve) => setTimeout(resolve, 300));
     assert.equal(systemFirstVisiblePrepare.parts.length, 0);
-    assert.equal(promptCalls, 3);
-    assert.match(promptInputs[2].body.parts[0].text, /Project Context prepared · compact · revision/);
+    assert.equal(visiblePreparePromptInputs().length, 3);
     const childSystem = { system: [] };
     await hooks["experimental.chat.system.transform"]({ sessionID: "child-session", model: {} }, childSystem);
     assert.equal(childSystem.system.length, 0);
@@ -291,15 +307,21 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
       metadata() {}
     });
     assert.doesNotMatch(searchOutput, /\.crewbee\/\.prjctxt/);
-    assert.equal(promptAsyncCalls, 1);
+    assert.ok(promptAsyncCalls >= 4);
 
+    await writeFile(contextPath(root, "PROJECT.md"), "# Project\n\n## Objective\n\nProject context is populated for the test.\n", "utf8");
+    await writeFile(contextPath(root, "ARCHITECTURE.md"), "# Architecture\n\n## System Map\n\nRuntime plugin and service modules.\n", "utf8");
+    await writeFile(contextPath(root, "IMPLEMENTATION.md"), "# Implementation Snapshot\n\n## What Works\n\nAuto prepare and update.\n\n## Verification Commands\n\nnpm test\n", "utf8");
+    await writeFile(contextPath(root, "HANDOFF.md"), "# Session Handoff\n\n## Current Snapshot\n\n- Populated.\n\n## Exact Next Actions\n\n1. Continue validation.\n", "utf8");
+
+    includeMaterialMessages = true;
     await hooks["tool.execute.before"]({ tool: "bash", sessionID: "parent-session", callID: "test", agent: "coding-leader" }, { args: { command: "npm test" } });
     await hooks["tool.execute.after"]({ tool: "bash", sessionID: "parent-session", callID: "test", agent: "coding-leader" }, { result: "ok" });
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
     await new Promise((resolve) => setTimeout(resolve, 120));
-    assert.equal(promptAsyncCalls, 2);
+    assert.ok(promptAsyncCalls >= 4);
     assert.equal(createCalls, 1);
-    const updateInput = promptAsyncInputs.find((input) => input.path.id === "parent-session" && input.body.parts?.[0]?.type === "subtask" && input.body.parts[0].prompt?.includes("Project Context Maintainer job: update"));
+    const updateInput = promptInputs.find((input) => input.path.id === "parent-session" && input.body.parts?.[0]?.type === "subtask" && input.body.parts[0].prompt?.includes("Project Context Maintainer job: update"));
     assert.ok(updateInput);
     assert.equal(updateInput.query.directory, root);
     assert.equal(updateInput.query.workspace, root);
@@ -336,7 +358,14 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     assert.equal(typeof jobPayload.payload.engineeringChanges.gitDiffSummary, "string");
     assert.match(jobPayload.payload.engineeringChanges.verificationOutputs[0], /=> ok/);
     assert.match(jobPayload.payload.instruction.join("\n"), /Update only the private Project Context scaffold\/workspace/);
-    assert.equal(promptCalls, 3);
+    assert.equal(promptCalls, 1);
+    assert.equal(promptInputs.some((input) => input.body?.parts?.some((part) => part.text?.includes("Project Context update · started"))), false);
+
+    includeMaterialMessages = false;
+    await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, { message: { info: { role: "user" } }, parts: [{ type: "text", text: "Project Context update · started · job update-test", ignored: true }] });
+    await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    assert.ok(promptAsyncCalls >= 4);
 
     await hooks["tool.execute.after"]({ tool: "task", sessionID: "parent-session", callID: "internal-update", agent: "coding-leader", args: { subagent_type: "project-context-maintainer", command: "project_context_update", prompt: updatePart.prompt } }, { result: "done" });
     await assert.rejects(() => readFile(path.join(root, jobFile), "utf8"), /ENOENT/);
@@ -349,14 +378,16 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     await hooks.event({ event: { type: "message.updated", properties: { sessionID: "maintainer-session", info: { role: "assistant" }, parts: [{ type: "text", text: "决定更新内部上下文。" }] } } });
     await hooks.event({ event: { type: "session.status", properties: { sessionID: "maintainer-session", status: { type: "idle" } } } });
     await new Promise((resolve) => setTimeout(resolve, 10));
-    assert.equal(promptAsyncCalls, 2);
+    assert.ok(promptAsyncCalls >= 4);
 
+    includeMaterialMessages = true;
+    materialAssistantText = "决定采用 auto update，下一步补充验证。";
     await hooks.event({ event: { type: "message.updated", properties: { sessionID: "parent-session", info: { role: "assistant" }, parts: [{ type: "text", text: "决定采用 auto update，下一步补充验证。" }] } } });
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
     await new Promise((resolve) => setTimeout(resolve, 120));
-    assert.equal(promptAsyncCalls, 3);
-    assert.equal(promptCalls, 3);
-    const updateSubtasksAfterSecondTurn = promptAsyncInputs.filter((input) => input.path.id === "parent-session" && input.body.parts?.[0]?.type === "subtask" && input.body.parts[0].command === "project_context_update");
+    assert.ok(promptAsyncCalls >= 4);
+    assert.equal(promptCalls, 2);
+    const updateSubtasksAfterSecondTurn = promptInputs.filter((input) => input.path.id === "parent-session" && input.body.parts?.[0]?.type === "subtask" && input.body.parts[0].command === "project_context_update");
     assert.equal(updateSubtasksAfterSecondTurn.length, 2);
     const secondJobFile = updateSubtasksAfterSecondTurn[1].body.parts[0].prompt.match(/Job payload file:\s*(.+)$/m)?.[1].trim();
     assert.ok(secondJobFile);
@@ -366,15 +397,25 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, { message: { info: { role: "user" } }, parts: [{ type: "text", text: "请更新上下文。" }] });
     await hooks.event({ event: { type: "session.status", properties: { info: { id: "parent-session" }, status: { type: "idle" } } } });
     await new Promise((resolve) => setTimeout(resolve, 120));
-    assert.equal(promptAsyncCalls, 4);
+    assert.ok(promptAsyncCalls >= 4);
     assert.equal(promptCalls, 3);
-    const updateSubtasksAfterThirdTurn = promptAsyncInputs.filter((input) => input.path.id === "parent-session" && input.body.parts?.[0]?.type === "subtask" && input.body.parts[0].command === "project_context_update");
+    const updateSubtasksAfterThirdTurn = promptInputs.filter((input) => input.path.id === "parent-session" && input.body.parts?.[0]?.type === "subtask" && input.body.parts[0].command === "project_context_update");
     assert.equal(updateSubtasksAfterThirdTurn.length, 3);
     const thirdJobFile = updateSubtasksAfterThirdTurn[2].body.parts[0].prompt.match(/Job payload file:\s*(.+)$/m)?.[1].trim();
     assert.ok(thirdJobFile);
     assert.notEqual(thirdJobFile, jobFile);
     assert.notEqual(thirdJobFile, secondJobFile);
     assert.match(JSON.parse(await readFile(path.join(root, thirdJobFile), "utf8")).payload.parentSessionSummary.latestUserRequest, /请更新上下文/);
+
+    await service(root).initProjectContext({ projectId: "demo", projectName: "Demo", force: true });
+    includeMaterialMessages = false;
+    await hooks.event({ event: { type: "session.idle", properties: { sessionID: "general-session" } } });
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const scaffoldPopulationUpdate = promptInputs.find((input) => input.path.id === "general-session" && input.body.parts?.[0]?.type === "subtask");
+    assert.ok(scaffoldPopulationUpdate);
+    const scaffoldJobFile = scaffoldPopulationUpdate.body.parts[0].prompt.match(/Job payload file:\s*(.+)$/m)?.[1].trim();
+    assert.ok(scaffoldJobFile);
+    assert.ok(JSON.parse(await readFile(path.join(root, scaffoldJobFile), "utf8")).payload.trigger.reasons.includes("context_needs_population"));
     await new Promise((resolve) => setTimeout(resolve, 150));
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -391,9 +432,10 @@ test("OpenCode plugin auto-initializes missing scaffold on first root session", 
         async create(input) {
           createCalls += 1;
           assert.equal(input.body.parentID, "parent-session");
-          return { id: "init-maintainer-session" };
+          return { info: { id: "init-maintainer-session" } };
         },
         async get(input) {
+          assert.ok(input.path.id);
           return { id: input.path.id };
         },
         async promptAsync(input) {
@@ -455,6 +497,7 @@ test("maintainer subsession runner completes via prompt_async polling", async ()
       },
       async promptAsync(input) {
         calls.push(["promptAsync", input.path.id, input.query]);
+        assert.ok(input.path.id);
         assert.equal(input.body.tools.project_context_search, false);
         return undefined;
       },

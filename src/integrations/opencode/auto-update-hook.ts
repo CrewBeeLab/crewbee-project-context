@@ -4,7 +4,7 @@ import { writeRuntimeLog } from "./runtime-log.js";
 import type { OpenCodeClientLike } from "./types.js";
 import { DEFAULT_CONTEXT_DIR } from "../../core/constants.js";
 import { execFile } from "node:child_process";
-import { mkdir, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -108,6 +108,7 @@ function collectText(value: unknown, output: string[]): void {
   }
   if (typeof value !== "object" || value === null) return;
   const record = value as Record<string, unknown>;
+  if (record.type === "text" && record.ignored === true) return;
   for (const key of ["text", "content", "output"]) {
     if (typeof record[key] === "string") output.push(record[key]);
   }
@@ -145,6 +146,7 @@ function addSignalLines(target: Set<string>, text: string, pattern: RegExp): voi
 
 function recordMessageSummary(state: SessionUpdateState, role: string | undefined, text: string): void {
   if (!text.trim()) return;
+  if (isProjectContextRuntimeText(text)) return;
   if (role === "user") state.latestUserRequest = compactText(text, 1_200);
   if (role === "assistant") {
     state.assistantFinalText = compactText(text, 2_400);
@@ -154,9 +156,13 @@ function recordMessageSummary(state: SessionUpdateState, role: string | undefine
   }
 }
 
+function isProjectContextRuntimeText(text: string): boolean {
+  return /Project Context (prepared|update) ·/i.test(text);
+}
+
 function textMaterialReasons(role: string | undefined, text: string): string[] {
   if (text.length === 0) return [];
-  if (/Project Context (prepared|update) ·/i.test(text)) return [];
+  if (isProjectContextRuntimeText(text)) return [];
   const lower = text.toLowerCase();
   const reasons: string[] = [];
   if (role === "assistant") {
@@ -199,6 +205,16 @@ function readString(value: unknown, key: string): string | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
   const direct = (value as Record<string, unknown>)[key];
   return typeof direct === "string" ? direct : undefined;
+}
+
+function summarizePromptResult(value: unknown): string {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return typeof value;
+  const record = value as Record<string, unknown>;
+  const info = typeof record.info === "object" && record.info !== null && !Array.isArray(record.info) ? record.info as Record<string, unknown> : record;
+  const id = typeof info.id === "string" ? info.id : undefined;
+  const role = typeof info.role === "string" ? info.role : undefined;
+  const parts = Array.isArray(record.parts) ? record.parts.length : undefined;
+  return JSON.stringify({ id, role, parts });
 }
 
 function updateJobsDir(projectRoot: string): string {
@@ -252,6 +268,28 @@ async function collectEngineeringSnapshot(projectRoot: string): Promise<{ change
       .slice(0, 80);
   const gitDiffSummary = await gitOutput(projectRoot, ["diff", "--stat"]);
   return { changedFiles, gitStatus, gitDiffSummary };
+}
+
+async function contextNeedsPopulation(projectRoot: string): Promise<boolean> {
+  const readContextFile = async (file: string): Promise<string> => {
+    try {
+      return await readFile(path.join(projectRoot, DEFAULT_CONTEXT_DIR, file), "utf8");
+    } catch {
+      return "";
+    }
+  };
+  const [project, architecture, implementation, handoff] = await Promise.all([
+    readContextFile("PROJECT.md"),
+    readContextFile("ARCHITECTURE.md"),
+    readContextFile("IMPLEMENTATION.md"),
+    readContextFile("HANDOFF.md")
+  ]);
+  return [
+    /Describe the project objective\./i.test(project),
+    /^TBD\s*$/im.test(architecture),
+    /^TBD\s*$/im.test(implementation),
+    /Fill in project context files\./i.test(handoff)
+  ].some(Boolean);
 }
 
 function buildUpdatePayload(input: {
@@ -395,6 +433,7 @@ export class AutoUpdateManager {
     if (type !== "session.idle" && !(type === "session.status" && readStatusType(input.event) === "idle")) return;
     if (!sessionID) return;
     await this.captureLatestSessionMessages(sessionID);
+    if (await contextNeedsPopulation(this.input.projectRoot)) this.state(sessionID).materialReasons.add("context_needs_population");
     await this.drainSession(sessionID);
   }
 
@@ -474,15 +513,15 @@ export class AutoUpdateManager {
 
   private async runUpdate(sessionID: string, reasons: string[], toolEvents: string[], summary: { latestUserRequest: string | undefined; assistantFinalText: string | undefined; decisions: string[]; nextActions: string[]; blockers: string[]; verificationOutputs: string[] }): Promise<void> {
     await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "start", sessionID, details: { reasons: reasons.join(",") } });
-    if (!this.input.client.session.promptAsync) {
-      await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "failed", sessionID, error: "OpenCode client does not expose session.promptAsync for maintainer update subtask." });
+    if (!this.input.client.session.prompt) {
+      await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "failed", sessionID, error: "OpenCode client does not expose session.prompt for maintainer update subtask." });
       return;
     }
     try {
       const engineering = await collectEngineeringSnapshot(this.input.projectRoot);
       const payload = buildUpdatePayload({ reasons, toolEvents, ...summary, ...engineering });
       const job = await writeUpdateJob(this.input.projectRoot, payload);
-      await this.input.client.session.promptAsync({
+      const result = await this.input.client.session.prompt({
         path: { id: sessionID },
         body: {
           parts: [{
@@ -495,12 +534,10 @@ export class AutoUpdateManager {
         },
         query: { directory: this.input.projectRoot, workspace: this.input.projectRoot }
       });
-      await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "task-card-launched", sessionID, details: { reasons: reasons.join(","), agent: PROJECT_CONTEXT_MAINTAINER_AGENT_ID, jobID: job.jobID } });
+      await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "task-card-launched", sessionID, details: { reasons: reasons.join(","), agent: PROJECT_CONTEXT_MAINTAINER_AGENT_ID, jobID: job.jobID, promptResult: summarizePromptResult(result) } });
     } catch (error) {
       await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "failed", sessionID, error: error instanceof Error ? error.message : String(error), details: { reasons: reasons.join(",") } });
-      if (this.input.client.session.prompt) {
-        await this.appendVisibleUpdateStatus(sessionID, "failed", error instanceof Error ? error.message : String(error));
-      }
+      await this.appendVisibleUpdateStatus(sessionID, "failed", error instanceof Error ? error.message : String(error));
     }
   }
 

@@ -39,7 +39,8 @@
     "typescript": "^5.8.0"
   },
   "dependencies": {
-    "@opencode-ai/plugin": "^1.2.24",
+    "@opencode-ai/plugin": "1.14.28",
+    "@opencode-ai/sdk": "1.14.28",
     "yaml": "^2.8.2"
   }
 }
