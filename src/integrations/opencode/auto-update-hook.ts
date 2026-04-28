@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { DEFAULT_CONTEXT_DIR, PRIVATE_RUNTIME_CONTEXT_DIR } from "../../core/constants.js";
+import { PRIVATE_RUNTIME_CONTEXT_DIR } from "../../core/constants.js";
 import { ProjectContextService } from "../../service/project-context-service.js";
 import { hasSessionMethod, sessionGet, sessionMessages } from "./client-adapter.js";
 import { PROJECT_CONTEXT_MAINTAINER_AGENT_ID } from "./maintainer-prompt.js";
@@ -22,7 +22,6 @@ interface SessionUpdateState {
   seenMessageFingerprints: Set<string>;
   materialReasons: Set<string>;
   toolEvents: RecordedToolEvent[];
-  lastPopulationSignature?: string | undefined;
 }
 
 interface PendingToolCall {
@@ -454,14 +453,12 @@ export class AutoUpdateManager {
         state.pendingAfterFlight = true;
         return;
       }
-      if (state.materialReasons.size === 0 && await this.markPopulationNeededIfTemplate(state)) {
-        state.materialReasons.add("context_needs_population");
-      }
       if (state.materialReasons.size === 0) {
         await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "skipped", sessionID, details: { reason: "no_material_change" } });
         return;
       }
-      if (!state.materialReasons.has("files_changed") && !state.materialReasons.has("context_needs_population")) {
+      const hasCurrentFileChange = state.toolEvents.some((event) => event.reason === "files_changed");
+      if (!hasCurrentFileChange) {
         state.materialReasons.clear();
         state.toolEvents = [];
         await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "skipped", sessionID, details: { reason: "no_engineering_file_change" } });
@@ -494,33 +491,6 @@ export class AutoUpdateManager {
     const created: SessionUpdateState = { inFlight: false, drainInFlight: false, pendingAfterFlight: false, seenMessageFingerprints: new Set<string>(), materialReasons: new Set<string>(), toolEvents: [] };
     this.states.set(sessionID, created);
     return created;
-  }
-
-  private async markPopulationNeededIfTemplate(state: SessionUpdateState): Promise<boolean> {
-    const signature = await this.templatePopulationSignature();
-    if (!signature) return false;
-    if (state.lastPopulationSignature === signature) return false;
-    state.lastPopulationSignature = signature;
-    return true;
-  }
-
-  private async templatePopulationSignature(): Promise<string | undefined> {
-    const checks = [
-      { file: "PROJECT.md", pattern: /Describe the project objective\.|New Project|new-project/i },
-      { file: "ARCHITECTURE.md", pattern: /^TBD\s*$/im },
-      { file: "IMPLEMENTATION.md", pattern: /^TBD\s*$/im },
-      { file: "HANDOFF.md", pattern: /Fill in project context files\./i }
-    ];
-    const matches: string[] = [];
-    for (const check of checks) {
-      try {
-        const text = await readFile(path.join(this.input.projectRoot, DEFAULT_CONTEXT_DIR, check.file), "utf8");
-        if (check.pattern.test(text)) matches.push(`${check.file}:${text.length}`);
-      } catch (error) {
-        await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "template-detect-read-failed", error: error instanceof Error ? error.message : String(error), details: { file: check.file } });
-      }
-    }
-    return matches.length > 0 ? matches.join("|") : undefined;
   }
 
   private async buildUpdateJobPayload(sessionID: string, reasons: string[], toolEvents: RecordedToolEvent[]): Promise<UpdateJobPayload> {

@@ -3,6 +3,22 @@ import { buildMaintainerPrompt, PROJECT_CONTEXT_MAINTAINER_AGENT_ID } from "./ma
 import type { OpenCodeAgentConfig, OpenCodeConfigLike, PermissionAction, PermissionRule } from "./types.js";
 
 const PROJECT_CONTEXT_TOOL_NAMES = ["project_context_search"] as const;
+const MAINTAINER_ALLOWED_TOOLS = {
+  read: true,
+  glob: true,
+  grep: true,
+  edit: true,
+  bash: true,
+  write: false,
+  webfetch: false,
+  websearch: false,
+  task: false,
+  project_context_search: false,
+  session: false,
+  "session.create": false,
+  "session.prompt": false,
+  "session.promptAsync": false
+} as const;
 
 function denyProjectContextRuntimeAccess(permission: Record<string, PermissionRule | undefined>): void {
   for (const toolName of PROJECT_CONTEXT_TOOL_NAMES) permission[toolName] = "deny";
@@ -34,8 +50,8 @@ function createMaintainerAgent(): OpenCodeAgentConfig {
       read: { "*": "allow", "*.env": "deny", "*.env.*": "deny", [`${PRIVATE_RUNTIME_CONTEXT_DIR}/cache/update-jobs/**`]: "allow" },
       glob: "allow",
       grep: "allow",
-      edit: { "*": "deny", [`${DEFAULT_CONTEXT_DIR}/**`]: "allow" },
-      bash: { "*": "deny", "git status *": "allow", "git diff *": "allow", "git log *": "allow", "npm run doctor": "allow", "npm run doctor *": "allow" },
+      edit: { [`${DEFAULT_CONTEXT_DIR}/**`]: "allow", "*": "deny" },
+      bash: { "git status": "allow", "git status *": "allow", "git diff": "allow", "git diff *": "allow", "git log": "allow", "git log *": "allow", "npm run doctor": "allow", "npm run doctor *": "allow", "*": "deny" },
       webfetch: "deny",
       websearch: "deny",
       task: "deny",
@@ -45,7 +61,7 @@ function createMaintainerAgent(): OpenCodeAgentConfig {
       "session.prompt": "deny",
       "session.promptAsync": "deny"
     },
-    tools: disableProjectContextTools(undefined)
+    tools: { ...MAINTAINER_ALLOWED_TOOLS }
   };
 }
 

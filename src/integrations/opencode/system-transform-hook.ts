@@ -128,25 +128,7 @@ function visiblePrepareSummary(input: { revision: string; estimatedTokens: numbe
     .replace(/STATE\.yaml|HANDOFF\.md|PLAN\.yaml|MEMORY_INDEX\.md|DECISIONS\.md|REFERENCES\.md|observations/gi, "[project-context-private]");
 }
 
-type PrepareStatusSurface = "session.prompt.noReply" | "tui.toast" | "chat.message.synthetic" | "session.prompt.noReply+tui.toast" | "tui.toast+chat.message.synthetic";
-
-async function showPrepareStatus(input: { client: OpenCodeClientLike; summary: string }): Promise<PrepareStatusSurface | undefined> {
-  const toast = {
-    title: PREPARE_STATUS_TITLE,
-    message: input.summary,
-    variant: "info" as const,
-    duration: 8000
-  };
-  if (typeof input.client.tui?.showToast === "function") {
-    await input.client.tui.showToast({ body: toast });
-    return "tui.toast";
-  }
-  if (typeof input.client.tui?.publish === "function") {
-    await input.client.tui.publish({ type: "tui.toast.show", properties: toast });
-    return "tui.toast";
-  }
-  return undefined;
-}
+type PrepareStatusSurface = "session.prompt.noReply" | "chat.message.synthetic";
 
 async function showPrepareSummaryMessage(input: { client: OpenCodeClientLike; sessionID: string; projectRoot: string; summary: string }): Promise<PrepareStatusSurface | undefined> {
   if (!hasSessionMethod(input.client, "prompt")) return undefined;
@@ -250,6 +232,10 @@ function readRole(value: unknown): string | undefined {
   return undefined;
 }
 
+function blocksVisiblePrepareRole(role: string | undefined): boolean {
+  return role === "assistant" || role === "system" || role === "tool";
+}
+
 function collectText(value: unknown, output: string[]): void {
   if (typeof value === "string") {
     output.push(value);
@@ -283,21 +269,14 @@ export function createProjectContextSystemTransformHook(input: { service: Projec
     try {
       let surface: PrepareStatusSurface | undefined;
       try {
-        surface = await showPrepareStatus({ client: input.client, summary });
+        surface = await showPrepareSummaryMessage({ client: input.client, sessionID, projectRoot: input.projectRoot, summary });
       } catch (error) {
-        await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "visible-prepare-toast-failed", sessionID, error: error instanceof Error ? error.message : String(error) });
-      }
-      if (surface === undefined) {
-        try {
-          surface = await showPrepareSummaryMessage({ client: input.client, sessionID, projectRoot: input.projectRoot, summary });
-        } catch (error) {
-          await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "visible-prepare-message-failed", sessionID, error: error instanceof Error ? error.message : String(error) });
-        }
+        await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "visible-prepare-message-failed", sessionID, error: error instanceof Error ? error.message : String(error) });
       }
       const appendedChatPart = surface === undefined && output !== undefined ? appendPrepareSummaryPart({ sessionID, messageID, output, summary }) : false;
       if (appendedChatPart) surface = "chat.message.synthetic";
       preparedSessions.set(sessionID, { ...state, visibleRevision: state.revision, visibleSummaryPending: undefined, visibleFlushInFlight: false });
-      await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: surface === undefined ? "visible-prepare-unavailable" : "visible-prepare-status", sessionID, ...(surface !== undefined ? { details: { mode, revision: revisionLabel(state.revision), surface } } : { error: "OpenCode client does not expose tui.showToast/tui.publish and chat.message output was unavailable for assistant-side prepare status." }) });
+      await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: surface === undefined ? "visible-prepare-unavailable" : "visible-prepare-status", sessionID, ...(surface !== undefined ? { details: { mode, revision: revisionLabel(state.revision), surface } } : { error: "OpenCode client does not expose session.prompt and chat.message output was unavailable for assistant-side prepare status." }) });
     } catch (error) {
       preparedSessions.set(sessionID, { ...state, visibleSummaryPending: summary, visibleFlushInFlight: false });
       await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "visible-prepare-failed", sessionID, error: error instanceof Error ? error.message : String(error) });
@@ -337,7 +316,7 @@ export function createProjectContextSystemTransformHook(input: { service: Projec
   };
   hook.visibleChatMessage = async (hookInput: { sessionID?: string; messageID?: string; agent?: string; model?: unknown }, output: { message?: unknown; parts?: unknown[] }): Promise<void> => {
     if (isPrepareRuntimeMessage(output)) return;
-    if ((readRole(output) ?? readRole(output.message)) !== "user") return;
+    if (blocksVisiblePrepareRole(readRole(output) ?? readRole(output.message))) return;
     if (!(await shouldInjectProjectContext(hookInput, input.client, input.projectRoot))) return;
     await ensureProjectContextInitialized({
       service: input.service,

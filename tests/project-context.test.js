@@ -71,7 +71,7 @@ test("primer includes project and active step", async () => {
     assert.match(primer.text, /Project Context: available/);
     assert.doesNotMatch(primer.text, /\.crewbee\/\.prjctxt|\.crewbeectxt/);
     assert.equal(primer.warnings.some((warning) => /\.crewbee\/\.prjctxt|\.crewbeectxt/.test(warning)), false);
-    assert.match(primer.text, /Demo/);
+    assert.doesNotMatch(primer.text, /- Project(?: ID)?:/);
     assert.match(primer.text, /S1/);
     assert.ok(primer.estimatedTokens <= 1000);
   } finally {
@@ -98,6 +98,8 @@ test("prepare returns a task context brief", async () => {
     const brief = await prepareProjectContext(root, "Implement minimal CrewBee Project Context integration.");
     assert.match(brief.text, /Project Context Brief/);
     assert.match(brief.text, /Project Context: available/);
+    assert.doesNotMatch(brief.text, /- Implement minimal CrewBee Project Context integration\./);
+    assert.doesNotMatch(brief.text, /- Project(?: ID)?:/);
     assert.doesNotMatch(brief.text, /\.crewbee\/\.prjctxt|\.crewbeectxt/);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -382,8 +384,6 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     const promptAsyncInputs = [];
     let promptCalls = 0;
     const promptInputs = [];
-    let toastCalls = 0;
-    const toastInputs = [];
     const updatePayloads = [];
     let parentMessages = [
       { info: { role: "user" }, parts: [{ type: "text", text: "Hello." }] },
@@ -463,13 +463,6 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
           }
           return parentMessages;
         }
-      },
-      tui: {
-        async showToast(input) {
-          toastCalls += 1;
-          toastInputs.push(input);
-          return {};
-        }
       }
     };
     const hooks = await publicApi.ProjectContextOpenCodePlugin.server({ client, worktree: root, directory: root });
@@ -482,9 +475,12 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     assert.equal(config.agent["project-context-maintainer"].mode, "subagent");
     assert.equal(config.agent["project-context-maintainer"].permission.read[".crewbee/.prjctxt/cache/update-jobs/**"], "allow");
     assert.equal(config.agent["project-context-maintainer"].permission.edit[".crewbee/.prjctxt/**"], "allow");
+    assert.deepEqual(Object.keys(config.agent["project-context-maintainer"].permission.edit), [".crewbee/.prjctxt/**", "*"]);
     assert.equal(config.agent["project-context-maintainer"].permission.project_context_search, "deny");
     assert.equal(config.agent["project-context-maintainer"].permission["session.prompt"], "deny");
     assert.equal(config.agent["project-context-maintainer"].permission.bash["npm run doctor"], "allow");
+    assert.deepEqual(Object.keys(config.agent["project-context-maintainer"].permission.bash), ["git status", "git status *", "git diff", "git diff *", "git log", "git log *", "npm run doctor", "npm run doctor *", "*"]);
+    assert.deepEqual(config.agent["project-context-maintainer"].tools, { read: true, glob: true, grep: true, edit: true, bash: true, write: false, webfetch: false, websearch: false, task: false, project_context_search: false, session: false, "session.create": false, "session.prompt": false, "session.promptAsync": false });
     assert.equal(config.agent["project-context-maintainer"].tools.project_context_search, false);
     assert.equal(config.agent["coding-leader"].permission.task["project-context-maintainer"], "deny");
     assert.equal(config.agent.worker.permission.project_context_search, "deny");
@@ -511,25 +507,27 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     const visiblePrepare = { message: { id: "msg-visible-prepare", sessionID: "parent-session", role: "user" }, parts: [] };
     await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, visiblePrepare);
     assert.equal(visiblePrepare.parts.length, 0);
-    assert.equal(promptCalls, 0);
-    assert.equal(toastCalls, 1);
-    assert.equal(toastInputs[0].body.title, "Project Context Prepare Summary");
-    assert.equal(toastInputs[0].body.variant, "info");
-    assert.match(toastInputs[0].body.message, /Project Context Prepare Summary · compact · revision/);
-    assert.doesNotMatch(toastInputs[0].body.message, /.crewbee\/\.prjctxt|.crewbeectxt|STATE\.yaml|HANDOFF\.md|PLAN\.yaml|observations/);
+    assert.equal(promptCalls, 1);
+    assert.equal(promptInputs[0].body.noReply, true);
+    assert.equal(promptInputs[0].body.parts[0].metadata.kind, "project_context_prepare");
+    assert.match(promptInputs[0].body.parts[0].text, /Project Context Prepare Summary · compact · revision/);
+    assert.doesNotMatch(promptInputs[0].body.parts[0].text, /Prepare automatic project context for the current user task/i);
+    assert.doesNotMatch(promptInputs[0].body.parts[0].text, /- Project(?: ID)?: crewbee-project-context/i);
+    assert.doesNotMatch(promptInputs[0].body.parts[0].text, /.crewbee\/\.prjctxt|.crewbeectxt|STATE\.yaml|HANDOFF\.md|PLAN\.yaml|observations/);
     const rootSystem = { system: [] };
     await hooks["experimental.chat.system.transform"]({ sessionID: "parent-session", model: {} }, rootSystem);
     await new Promise((resolve) => setTimeout(resolve, 10));
     assert.equal(rootSystem.system.length, 1);
     assert.match(rootSystem.system[0], /Project Context is prepared automatically/);
     assert.match(rootSystem.system[0], /Project Context Brief/);
+    assert.doesNotMatch(rootSystem.system[0], /Prepare automatic project context for the current user task/i);
+    assert.doesNotMatch(rootSystem.system[0], /- Project(?: ID)?: crewbee-project-context/i);
     assert.doesNotMatch(rootSystem.system[0], /.crewbee\/\.prjctxt|.crewbeectxt|STATE\.yaml|HANDOFF\.md|PLAN\.yaml|observations/);
-    assert.equal(promptCalls, 0);
+    assert.equal(promptCalls, 1);
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
     await new Promise((resolve) => setTimeout(resolve, 10));
-    assert.equal(promptCalls, 0);
-    assert.equal(toastCalls, 1);
-    const transformed = { messages: [{ info: { role: "assistant" }, parts: [{ type: "text", text: toastInputs[0].body.message, metadata: { kind: "project_context_prepare" } }] }, { info: { role: "user" }, parts: [{ type: "text", text: "real user" }] }] };
+    assert.equal(promptCalls, 1);
+    const transformed = { messages: [{ info: { role: "assistant" }, parts: [{ type: "text", text: promptInputs[0].body.parts[0].text, metadata: { kind: "project_context_prepare" } }] }, { info: { role: "user" }, parts: [{ type: "text", text: "real user" }] }] };
     await hooks["experimental.chat.messages.transform"]({}, transformed);
     assert.equal(transformed.messages.length, 1);
     assert.equal(transformed.messages[0].parts[0].text, "real user");
@@ -545,16 +543,19 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     const revisionVisiblePrepare = { message: { id: "msg-visible-prepare-revision", sessionID: "parent-session", role: "user" }, parts: [] };
     await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, revisionVisiblePrepare);
     assert.equal(revisionVisiblePrepare.parts.length, 0);
-    assert.equal(promptCalls, 0);
-    assert.equal(toastCalls, 2);
-    assert.match(toastInputs[1].body.message, /Project Context Prepare Summary · compact · revision/);
+    assert.equal(promptCalls, 2);
+    assert.match(promptInputs[1].body.parts[0].text, /Project Context Prepare Summary · compact · revision/);
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
     await new Promise((resolve) => setTimeout(resolve, 10));
-    assert.equal(promptCalls, 0);
-    assert.equal(toastCalls, 2);
+    assert.equal(promptCalls, 2);
     const duplicateVisiblePrepare = { message: { id: "msg-visible-prepare-duplicate", sessionID: "parent-session", role: "user" }, parts: [] };
     await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, duplicateVisiblePrepare);
     assert.equal(duplicateVisiblePrepare.parts.length, 0);
+    await writeFile(path.join(root, ".crewbee", ".prjctxt", "HANDOFF.md"), "# Handoff\n\nRevision changed without role metadata.\n", "utf8");
+    const noRoleVisiblePrepare = { message: { id: "msg-visible-prepare-no-role", sessionID: "parent-session" }, parts: [] };
+    await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, noRoleVisiblePrepare);
+    assert.equal(noRoleVisiblePrepare.parts.length, 0);
+    assert.equal(promptCalls, 3);
     const systemFirstSystem = { system: [] };
     await hooks["experimental.chat.system.transform"]({ sessionID: "system-first-session", model: {} }, systemFirstSystem);
     assert.equal(systemFirstSystem.system.length, 1);
@@ -562,8 +563,7 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     const systemFirstVisiblePrepare = { message: { id: "msg-visible-prepare-system-first", sessionID: "system-first-session", role: "user" }, parts: [] };
     await hooks["chat.message"]({ sessionID: "system-first-session", agent: "coding-leader" }, systemFirstVisiblePrepare);
     assert.equal(systemFirstVisiblePrepare.parts.length, 0);
-    assert.equal(promptCalls, 0);
-    assert.equal(toastCalls, 3);
+    assert.equal(promptCalls, 4);
     const childSystem = { system: [] };
     await hooks["experimental.chat.system.transform"]({ sessionID: "child-session", model: {} }, childSystem);
     assert.equal(childSystem.system.length, 0);
@@ -591,7 +591,7 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
     await waitFor(() => updatePayloads.length === 1);
     assert.equal(promptAsyncCalls, 1);
-    assert.equal(promptCalls, 1);
+    assert.equal(promptCalls, 5);
     assert.equal(createCalls, 1);
     const updateInput = promptInputs.find((input) => input.path.id === "parent-session" && input.body.parts?.[0]?.type === "subtask" && /Project Context Maintainer job: update/i.test(input.body.parts[0].prompt ?? ""));
     assert.ok(updateInput);
@@ -617,22 +617,18 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
       }
     });
     const promptCallsAfterUpdateCleanup = promptCalls;
-    const toastCallsAfterUpdateCleanup = toastCalls;
     await writeFile(path.join(root, ".crewbee", ".prjctxt", "HANDOFF.md"), "# Handoff\n\nMaintainer updated context after auto update.\n", "utf8");
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
     await new Promise((resolve) => setTimeout(resolve, 10));
     assert.equal(promptCalls, promptCallsAfterUpdateCleanup);
-    assert.equal(toastCalls, toastCallsAfterUpdateCleanup);
     const postUpdateAssistantMessage = { message: { id: "msg-post-update-assistant", sessionID: "parent-session", role: "assistant" }, parts: [] };
     await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, postUpdateAssistantMessage);
     assert.equal(postUpdateAssistantMessage.parts.length, 0);
     assert.equal(promptCalls, promptCallsAfterUpdateCleanup);
-    assert.equal(toastCalls, toastCallsAfterUpdateCleanup);
     const postUpdateVisiblePrepare = { message: { id: "msg-post-update-prepare", sessionID: "parent-session", role: "user" }, parts: [] };
     await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, postUpdateVisiblePrepare);
     assert.equal(postUpdateVisiblePrepare.parts.length, 0);
-    assert.equal(promptCalls, promptCallsAfterUpdateCleanup);
-    assert.equal(toastCalls, toastCallsAfterUpdateCleanup + 1);
+    assert.equal(promptCalls, promptCallsAfterUpdateCleanup + 1);
     const postUpdateSystem = { system: [] };
     await hooks["experimental.chat.system.transform"]({ sessionID: "parent-session", model: {} }, postUpdateSystem);
     assert.equal(postUpdateSystem.system.length, 1);
@@ -718,8 +714,54 @@ test("OpenCode prepare summary falls back to synthetic ignored chat part for Web
   }
 });
 
-test("OpenCode prepare summary remains visible in chat when TUI toast fails", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-toast-fail-"));
+test("OpenCode GeneralAgent plain message prepares context without triggering update", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-general-agent-"));
+  try {
+    let promptCalls = 0;
+    const promptInputs = [];
+    const client = {
+      session: {
+        async get(input) {
+          return { id: input.path.id, directory: root };
+        },
+        async messages() {
+          return [
+            { info: { role: "user" }, parts: [{ type: "text", text: "1" }] },
+            { info: { role: "assistant" }, parts: [{ type: "text", text: "1" }] }
+          ];
+        },
+        async prompt(input) {
+          promptInputs.push(input);
+          if (input.body.parts?.[0]?.type === "subtask") promptCalls += 1;
+          return {};
+        }
+      }
+    };
+    await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
+    const hooks = await publicApi.ProjectContextOpenCodePlugin.server({ client, worktree: root, directory: root });
+
+    const visiblePrepare = { message: { id: "msg-general-agent", sessionID: "general-session" }, parts: [{ type: "text", text: "1" }] };
+    await hooks["chat.message"]({ sessionID: "general-session", agent: "GeneralAgent" }, visiblePrepare);
+    assert.equal(promptCalls, 0);
+    assert.equal(promptInputs.length, 1);
+    assert.equal(promptInputs[0].body.noReply, true);
+    assert.equal(promptInputs[0].body.parts[0].metadata.kind, "project_context_prepare");
+
+    const system = { system: [] };
+    await hooks["experimental.chat.system.transform"]({ sessionID: "general-session", model: {} }, system);
+    assert.equal(system.system.length, 1);
+    assert.match(system.system[0], /Project Context Brief/);
+
+    await hooks.event({ event: { type: "session.idle", properties: { sessionID: "general-session" } } });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(promptCalls, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenCode prepare summary falls back to synthetic ignored chat part when noReply fails", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-noreply-fail-"));
   try {
     const client = {
       session: {
@@ -732,18 +774,13 @@ test("OpenCode prepare summary remains visible in chat when TUI toast fails", as
         async prompt() {
           throw new Error("prepare must not prompt");
         }
-      },
-      tui: {
-        async showToast() {
-          throw new Error("toast unavailable in desktop web");
-        }
       }
     };
     await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
     await populateTemplateContext(root);
     const hooks = await publicApi.ProjectContextOpenCodePlugin.server({ client, worktree: root, directory: root });
 
-    const visiblePrepare = { message: { id: "msg-toast-fail", sessionID: "parent-session", role: "user" }, parts: [] };
+    const visiblePrepare = { message: { id: "msg-noreply-fail", sessionID: "parent-session", role: "user" }, parts: [] };
     await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, visiblePrepare);
 
     assert.equal(visiblePrepare.parts.length, 1);
@@ -756,15 +793,13 @@ test("OpenCode prepare summary remains visible in chat when TUI toast fails", as
   }
 });
 
-test("OpenCode auto-update detects template scaffold and uses private job payload", async () => {
+test("OpenCode auto-update does not run for template scaffold without file changes", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-template-update-"));
   try {
-    const payloads = [];
     const prompts = [];
     const client = {
       session: {
         async get(input) {
-          if (input.path.id === "runtime-update-child") return { id: input.path.id, parentID: "parent-session" };
           return { id: input.path.id };
         },
         async messages() {
@@ -775,18 +810,6 @@ test("OpenCode auto-update detects template scaffold and uses private job payloa
         },
         async prompt(input) {
           prompts.push(input);
-          const part = input.body.parts?.[0];
-          const text = part?.prompt ?? part?.text ?? "";
-          if (part?.type === "subtask" && /Project Context Maintainer job: update/i.test(text)) {
-            assert.equal(input.path.id, "parent-session");
-            assert.equal(part.agent, "project-context-maintainer");
-            assert.equal(part.description, "Project Context Update");
-            const jobID = text.match(/Job ID:\s*(pcu_[a-z0-9_]+)/i)?.[1];
-            assert.ok(jobID);
-            const payloadPath = path.join(root, ".crewbee", ".prjctxt", "cache", "update-jobs", `${jobID}.json`);
-            assert.match(text.replaceAll("\\", "/"), new RegExp(payloadPath.replaceAll("\\", "/").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-            payloads.push({ path: payloadPath, payload: JSON.parse(await readFile(payloadPath, "utf8")) });
-          }
           return {};
         },
         async status() {
@@ -797,23 +820,9 @@ test("OpenCode auto-update detects template scaffold and uses private job payloa
     await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
     const hooks = await publicApi.ProjectContextOpenCodePlugin.server({ client, worktree: path.parse(root).root, directory: root });
     await Promise.all(Array.from({ length: 4 }, () => hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } })));
-    await waitFor(() => payloads.length === 1);
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    assert.equal(payloads.length, 1);
-    assert.ok(payloads[0].payload.trigger.reasons.includes("context_needs_population"));
-    assert.equal(prompts[0].body.parts[0].type, "subtask");
-    assert.equal(prompts[0].body.parts[0].agent, "project-context-maintainer");
-    await hooks["tool.execute.before"]({ tool: "read", sessionID: "runtime-update-child", callID: "template-payload-read", agent: "project-context-maintainer" }, { args: { filePath: payloads[0].path } });
-    await hooks["tool.execute.after"]({ tool: "read", sessionID: "runtime-update-child", callID: "template-payload-read", agent: "project-context-maintainer", args: { filePath: payloads[0].path } }, { result: "payload read" });
-    await waitFor(async () => {
-      try {
-        await readFile(payloads[0].path, "utf8");
-        return false;
-      } catch {
-        return true;
-      }
-    });
+    assert.equal(prompts.some((input) => input.body.parts?.[0]?.type === "subtask"), false);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
