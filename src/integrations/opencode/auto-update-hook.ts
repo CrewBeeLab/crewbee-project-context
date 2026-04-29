@@ -15,9 +15,17 @@ const execFileAsync = promisify(execFile);
 const UPDATE_JOB_RETENTION_MS = 30 * 60 * 1000;
 
 interface SessionUpdateState {
+  currentTurnID: number;
   inFlight: boolean;
   drainInFlight: boolean;
   pendingAfterFlight: boolean;
+  lastRealUserMessageID?: string | undefined;
+  lastRealUserMessageAt?: number | undefined;
+  lastAssistantMessageID?: string | undefined;
+  lastAssistantMessageAt?: number | undefined;
+  assistantSeenAfterLatestUser: boolean;
+  materialTurnID?: number | undefined;
+  lastUpdatedTurnID?: number | undefined;
   lastMessageSignature?: string | undefined;
   seenMessageFingerprints: Set<string>;
   materialReasons: Set<string>;
@@ -139,7 +147,7 @@ function collectText(value: unknown, output: string[]): void {
   for (const key of ["text", "content", "output", "prompt", "description"]) {
     if (typeof record[key] === "string") output.push(record[key]);
   }
-  for (const key of ["parts", "message", "data", "properties", "info"]) collectText(record[key], output);
+  for (const key of ["parts", "message", "data", "properties", "info", "state", "metadata"]) collectText(record[key], output);
 }
 
 function asArray(value: unknown): unknown[] {
@@ -177,12 +185,19 @@ function runtimeText(text: string): boolean {
     || /Project Context (Maintainer|Update)/i.test(text)
     || /Project Context workspace is private/i.test(text)
     || /Unable to update private Project Context scaffold/i.test(text)
+    || /PROJECT_CONTEXT_UPDATE_DONE\s+job=pcu_[a-z0-9_]+\s+status=(ok|failed)/i.test(text)
+    || /<task_result>|<\/task_result>|task_id: .*for resuming to continue this task/i.test(text)
+    || /Summarize the task tool output above and continue with your task\.?/i.test(text)
     || /Project Context Maintainer job: update/i.test(text)
     || /project-context-maintainer|project_context_update|project_context_prepare|pcu_[a-z0-9_]+/i.test(text);
 }
 
 function userText(role: string | undefined, text: string): boolean {
   return role === "user" && text.trim().length > 0 && !runtimeText(text);
+}
+
+function assistantText(role: string | undefined, text: string): boolean {
+  return role === "assistant" && text.trim().length > 0 && !runtimeText(text);
 }
 
 function textMaterialReasons(role: string | undefined, text: string): string[] {
@@ -226,6 +241,12 @@ function messageFingerprint(message: unknown): string {
     const id = typeof record.id === "string" ? record.id : undefined;
     const info = record.info;
     if (id !== undefined) return `id:${id}`;
+    const nestedMessage = record.message;
+    if (typeof nestedMessage === "object" && nestedMessage !== null && !Array.isArray(nestedMessage)) {
+      const messageRecord = nestedMessage as Record<string, unknown>;
+      if (typeof messageRecord.id === "string") return `id:${messageRecord.id}`;
+      if (typeof messageRecord.messageID === "string") return `messageID:${messageRecord.messageID}`;
+    }
     if (typeof info === "object" && info !== null && !Array.isArray(info)) {
       const infoRecord = info as Record<string, unknown>;
       if (typeof infoRecord.id === "string") return `id:${infoRecord.id}`;
@@ -290,6 +311,7 @@ export class AutoUpdateManager {
   private readonly pendingToolCalls = new Map<string, PendingToolCall>();
   private readonly maintainerSessions = new Set<string>();
   private readonly activeUpdateJobs = new Map<string, Set<string>>();
+  private readonly updateTaskResultJobs = new Map<string, Set<string>>();
   private readonly updateTerminalSessions = new Set<string>();
   private readonly updateJobPayloadPaths = new Map<string, string>();
   private readonly maintainerUpdateJobs = new Map<string, { parentSessionID: string; jobID: string; payloadPath: string }>();
@@ -345,27 +367,54 @@ export class AutoUpdateManager {
       ...(output && "result" in output ? { resultSummary: summarizeUnknown(output.result) } : {}),
       timestamp: new Date().toISOString()
     });
+    state.materialTurnID = state.currentTurnID;
   }
 
   public isRuntimeUpdateTask(sessionID: string, args: unknown): boolean {
     if (readTaskTarget(args) !== PROJECT_CONTEXT_MAINTAINER_AGENT_ID) return false;
     const jobID = extractJobID(readTaskPrompt(args));
-    return jobID !== undefined && this.activeUpdateJobs.get(sessionID)?.has(jobID) === true;
+    return jobID !== undefined && (this.activeUpdateJobs.get(sessionID)?.has(jobID) === true || this.updateTaskResultJobs.get(sessionID)?.has(jobID) === true);
   }
 
-  public recordChatMessage(input: { sessionID?: string }, output: { message?: unknown; parts?: unknown[] }): void {
+  public filterRuntimeUpdateTaskResult(input: { tool: string; sessionID: string; args?: unknown }, output: { result?: unknown; [key: string]: unknown }): void {
+    if (input.tool !== "task") return;
+    if (!this.isRuntimeUpdateTask(input.sessionID, input.args)) return;
+    const jobID = extractJobID(readTaskPrompt(input.args));
+    if (!jobID) return;
+    const existingResult = summarizeUnknown(output.result, 2000);
+    const status = /PROJECT_CONTEXT_UPDATE_DONE\s+job=pcu_[a-z0-9_]+\s+status=failed|\b(error|exception|blocked)\b|(?:update|task)\s+failed/i.test(existingResult) ? "failed" : "ok";
+    output.result = [
+      `PROJECT_CONTEXT_UPDATE_DONE job=${jobID} status=${status}`,
+      "",
+      "This is an internal runtime maintenance result.",
+      "Do not continue the parent conversation because of this result."
+    ].join("\n");
+  }
+
+  private voidStalePendingForNewUserTurn(state: SessionUpdateState): void {
+    state.materialReasons.clear();
+    state.toolEvents = [];
+    state.materialTurnID = undefined;
+  }
+
+  public async recordChatMessage(input: { sessionID?: string }, output: { message?: unknown; parts?: unknown[] }): Promise<void> {
     const sessionID = input.sessionID;
     if (!sessionID || this.maintainerSessions.has(sessionID)) return;
     const text = readEventText(output);
-    const role = readRole(output) ?? readRole(output.message) ?? "user";
+    const role = readRole(output) ?? readRole(output.message);
+    if (role === undefined) {
+      await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "skip-message-unknown-role", sessionID });
+      return;
+    }
     if (this.updateTerminalSessions.has(sessionID)) {
-      if (userText(role, text)) this.updateTerminalSessions.delete(sessionID);
+      if (userText(role, text)) this.clearUpdateTerminalSession(sessionID);
       else return;
     }
     const state = this.state(sessionID);
     const fingerprint = messageFingerprint(output);
     if (state.seenMessageFingerprints.has(fingerprint)) return;
     state.seenMessageFingerprints.add(fingerprint);
+    this.recordTurnMessage(state, role, text, fingerprint, true);
     for (const reason of textMaterialReasons(role, text)) state.materialReasons.add(reason);
   }
 
@@ -380,7 +429,7 @@ export class AutoUpdateManager {
     }
     if (sessionID && this.updateTerminalSessions.has(sessionID)) {
       if (type?.startsWith("message.") && userText(readRole(input.event), readEventText(input.event))) {
-        this.updateTerminalSessions.delete(sessionID);
+        this.clearUpdateTerminalSession(sessionID);
       } else {
         await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "skip-terminal-update-session", sessionID, details: { type: type ?? "unknown" } });
         return;
@@ -393,7 +442,10 @@ export class AutoUpdateManager {
       const fingerprint = messageFingerprint(input.event);
       if (state.seenMessageFingerprints.has(fingerprint)) return;
       state.seenMessageFingerprints.add(fingerprint);
-      for (const reason of textMaterialReasons(readRole(input.event), readEventText(input.event))) {
+      const role = readRole(input.event);
+      const text = readEventText(input.event);
+      this.recordTurnMessage(state, role, text, fingerprint, true);
+      for (const reason of textMaterialReasons(role, text)) {
         state.materialReasons.add(reason);
       }
       return;
@@ -434,7 +486,9 @@ export class AutoUpdateManager {
         state.seenMessageFingerprints.add(fingerprint);
         const role = readRole(message);
         if (role !== "assistant" && role !== "user") continue;
-        for (const reason of textMaterialReasons(role, readEventText(message))) state.materialReasons.add(reason);
+        const text = readEventText(message);
+        this.recordTurnMessage(state, role, text, fingerprint, false);
+        for (const reason of textMaterialReasons(role, text)) state.materialReasons.add(reason);
       }
     } catch (error) {
       await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "message-scan-failed", sessionID, error: error instanceof Error ? error.message : String(error) });
@@ -457,6 +511,22 @@ export class AutoUpdateManager {
         await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "skipped", sessionID, details: { reason: "no_material_change" } });
         return;
       }
+      if (!state.assistantSeenAfterLatestUser) {
+        await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "skipped", sessionID, details: { reason: "waiting_for_assistant_final_response", currentTurnID: state.currentTurnID } });
+        return;
+      }
+      if (state.materialTurnID !== state.currentTurnID) {
+        state.materialReasons.clear();
+        state.toolEvents = [];
+        await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "skipped", sessionID, details: { reason: "material_change_not_in_current_turn", materialTurnID: state.materialTurnID, currentTurnID: state.currentTurnID } });
+        return;
+      }
+      if (state.lastUpdatedTurnID === state.currentTurnID) {
+        state.materialReasons.clear();
+        state.toolEvents = [];
+        await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "skipped", sessionID, details: { reason: "turn_already_updated", currentTurnID: state.currentTurnID } });
+        return;
+      }
       const hasCurrentFileChange = state.toolEvents.some((event) => event.reason === "files_changed");
       if (!hasCurrentFileChange) {
         state.materialReasons.clear();
@@ -465,13 +535,14 @@ export class AutoUpdateManager {
         return;
       }
       state.inFlight = true;
+      state.lastUpdatedTurnID = state.currentTurnID;
+      this.updateTerminalSessions.add(sessionID);
       const reasons = [...state.materialReasons];
       const toolEvents = [...state.toolEvents];
       state.materialReasons.clear();
       state.toolEvents = [];
       void this.runUpdate(sessionID, reasons, toolEvents).finally(() => {
         state.inFlight = false;
-        this.updateTerminalSessions.add(sessionID);
         state.pendingAfterFlight = false;
         state.materialReasons.clear();
         state.toolEvents = [];
@@ -488,9 +559,32 @@ export class AutoUpdateManager {
   private state(sessionID: string): SessionUpdateState {
     const existing = this.states.get(sessionID);
     if (existing) return existing;
-    const created: SessionUpdateState = { inFlight: false, drainInFlight: false, pendingAfterFlight: false, seenMessageFingerprints: new Set<string>(), materialReasons: new Set<string>(), toolEvents: [] };
+    const created: SessionUpdateState = { currentTurnID: 0, inFlight: false, drainInFlight: false, pendingAfterFlight: false, assistantSeenAfterLatestUser: false, seenMessageFingerprints: new Set<string>(), materialReasons: new Set<string>(), toolEvents: [] };
     this.states.set(sessionID, created);
     return created;
+  }
+
+  private recordTurnMessage(state: SessionUpdateState, role: string | undefined, text: string, fingerprint: string, resetPendingOnUser: boolean): void {
+    const now = Date.now();
+    if (userText(role, text)) {
+      state.currentTurnID += 1;
+      state.lastRealUserMessageID = fingerprint;
+      state.lastRealUserMessageAt = now;
+      state.assistantSeenAfterLatestUser = false;
+      if (resetPendingOnUser) this.voidStalePendingForNewUserTurn(state);
+      return;
+    }
+    if (!assistantText(role, text)) return;
+    state.lastAssistantMessageID = fingerprint;
+    state.lastAssistantMessageAt = now;
+    if (state.lastRealUserMessageAt !== undefined && now >= state.lastRealUserMessageAt) {
+      state.assistantSeenAfterLatestUser = true;
+    }
+  }
+
+  private clearUpdateTerminalSession(sessionID: string): void {
+    this.updateTerminalSessions.delete(sessionID);
+    this.updateTaskResultJobs.delete(sessionID);
   }
 
   private async buildUpdateJobPayload(sessionID: string, reasons: string[], toolEvents: RecordedToolEvent[]): Promise<UpdateJobPayload> {
@@ -562,6 +656,9 @@ export class AutoUpdateManager {
     const jobs = this.activeUpdateJobs.get(input.sessionID) ?? new Set<string>();
     jobs.add(input.jobID);
     this.activeUpdateJobs.set(input.sessionID, jobs);
+    const taskResultJobs = this.updateTaskResultJobs.get(input.sessionID) ?? new Set<string>();
+    taskResultJobs.add(input.jobID);
+    this.updateTaskResultJobs.set(input.sessionID, taskResultJobs);
     this.updateJobPayloadPaths.set(input.jobID, input.payloadPath);
     const timer: ReturnType<typeof setTimeout> & { unref?: () => void } = setTimeout(() => {
       void rm(input.payloadPath, { force: true }).catch((error: unknown) => writeRuntimeLog(this.input.projectRoot, {
@@ -572,9 +669,11 @@ export class AutoUpdateManager {
         error: error instanceof Error ? error.message : String(error)
       })).finally(() => {
         const current = this.activeUpdateJobs.get(input.sessionID);
-        if (!current) return;
-        current.delete(input.jobID);
-        if (current.size === 0) this.activeUpdateJobs.delete(input.sessionID);
+        current?.delete(input.jobID);
+        if (current?.size === 0) this.activeUpdateJobs.delete(input.sessionID);
+        const taskResults = this.updateTaskResultJobs.get(input.sessionID);
+        taskResults?.delete(input.jobID);
+        if (taskResults?.size === 0) this.updateTaskResultJobs.delete(input.sessionID);
         this.updateJobPayloadPaths.delete(input.jobID);
       });
     }, UPDATE_JOB_RETENTION_MS);

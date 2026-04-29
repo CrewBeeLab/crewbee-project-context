@@ -42,16 +42,18 @@ export async function server(ctx: OpenCodePluginInputLike) {
     },
     "chat.message": async (input: { sessionID?: string; agent?: string; model?: unknown }, output: { message?: unknown; parts?: unknown[] }) => {
       await autoPrepare.visibleChatMessage(input, output);
-      autoUpdate.recordChatMessage(input, output);
+      await autoUpdate.recordChatMessage(input, output);
     },
-    "experimental.chat.messages.transform": async (_input: Record<string, never>, output: { messages: { info?: unknown; parts?: unknown[] }[] }) => {
-      autoPrepare.transformMessages(output);
+    "experimental.chat.messages.transform": async (input: { sessionID?: string; agent?: string; model?: unknown }, output: { messages: { info?: unknown; parts?: unknown[] }[] }) => {
+      if ((input.sessionID && autoUpdate.isMaintainerSession(input.sessionID)) || input.agent === "project-context-maintainer") return;
+      autoPrepare.transformMessages(input, output);
     },
     "tool.execute.before": async (input: { tool: string; sessionID: string; callID: string; agent?: string; args?: unknown }, output: { args?: unknown }) => {
       await guardTool(input, output);
       autoUpdate.recordToolBefore(input, output);
     },
     "tool.execute.after": async (input: { tool: string; sessionID: string; callID: string; agent?: string; args?: unknown }, output: { result?: unknown; [key: string]: unknown }) => {
+      autoUpdate.filterRuntimeUpdateTaskResult(input, output);
       await autoUpdate.recordToolAfter(input, output);
       await redactOutput(input, output);
     }

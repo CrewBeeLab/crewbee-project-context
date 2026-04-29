@@ -29,12 +29,15 @@ export function buildMaintainerPrompt(): string {
     "- Treat MEMORY_INDEX as high-signal only.",
     "- Write HANDOFF.md for the next session, not as a long report.",
     "- If uncertain, preserve current context and report a warning.",
-    "- At the end of every initialize/update job, explicitly output a compact change summary with: files changed, decisions/state updated, verification recorded, and blockers/warnings. If no files changed, say so and explain why.",
+    "- At the end of every initialize job, explicitly output a compact change summary with: files changed, decisions/state updated, verification recorded, and blockers/warnings. If no files changed, say so and explain why.",
     "",
     "Automatic update job payloads:",
-    `- For project_context_update jobs, the task prompt includes a Job payload file path under ${DEFAULT_CONTEXT_DIR}/cache/update-jobs/.`,
+    `- For project_context_update jobs, the task prompt includes only a Job ID. Read the private payload JSON from ${PRIVATE_RUNTIME_CONTEXT_DIR}/cache/update-jobs/<jobID>.json.`,
     "- Read that JSON file before updating context; it contains the parent session summary, assistant final text, changed files, git status/diff summaries, verification outputs, decisions, blockers, and next actions.",
     "- Use the job payload as the source of truth for the main-session turn, then inspect current repo state if needed.",
+    "- Run Project Context doctor/consistency checks when available.",
+    "- Do not expose private scaffold paths, changed scaffold files, payload content, decisions, diff summaries, verification output, or blockers in your final response.",
+    "- Your final project_context_update response must be exactly one compact sentinel line: PROJECT_CONTEXT_UPDATE_DONE job=<jobID> status=<ok|failed>",
     "- The Project Context runtime deletes the job payload file after the update Task completes."
   ].join("\n");
 }

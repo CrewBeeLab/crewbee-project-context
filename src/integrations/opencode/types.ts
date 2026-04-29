@@ -59,7 +59,7 @@ export interface OpenCodeHooksLike {
   tool?: Record<string, ToolDefinition>;
   event?: (input: { event: unknown }) => Promise<void>;
   "chat.message"?: (input: { sessionID?: string; messageID?: string; agent?: string; model?: unknown; variant?: unknown }, output: { message?: unknown; parts?: unknown[] }) => void | Promise<void>;
-  "experimental.chat.messages.transform"?: (input: Record<string, never>, output: { messages: { info?: unknown; parts?: unknown[] }[] }) => void | Promise<void>;
+  "experimental.chat.messages.transform"?: (input: { sessionID?: string; agent?: string; model?: unknown }, output: { messages: { info?: unknown; parts?: unknown[] }[] }) => void | Promise<void>;
   "experimental.chat.system.transform"?: (input: { sessionID?: string; model: unknown }, output: { system: string[] }) => Promise<void>;
   "tool.execute.before"?: (input: { tool: string; sessionID: string; callID: string; agent?: string; args?: unknown }, output: { args?: unknown }) => Promise<void>;
   "tool.execute.after"?: (input: { tool: string; sessionID: string; callID: string; agent?: string }, output: { result?: unknown }) => Promise<void>;

@@ -3,6 +3,13 @@ import { buildMaintainerPrompt, PROJECT_CONTEXT_MAINTAINER_AGENT_ID } from "./ma
 import type { OpenCodeAgentConfig, OpenCodeConfigLike, PermissionAction, PermissionRule } from "./types.js";
 
 const PROJECT_CONTEXT_TOOL_NAMES = ["project_context_search"] as const;
+const PROJECT_CONTEXT_WRITE_PERMISSION = {
+  "*": "deny",
+  [DEFAULT_CONTEXT_DIR + "/**"]: "allow",
+  ["**/" + DEFAULT_CONTEXT_DIR + "/**"]: "allow",
+  [DEFAULT_CONTEXT_DIR.replaceAll("/", "\\") + "\\**"]: "allow",
+  ["**\\" + DEFAULT_CONTEXT_DIR.replaceAll("/", "\\") + "\\**"]: "allow"
+} as const;
 const MAINTAINER_ALLOWED_TOOLS = {
   read: true,
   glob: true,
@@ -52,10 +59,10 @@ function createMaintainerAgent(): OpenCodeAgentConfig {
       read: { "*": "allow", "*.env": "deny", "*.env.*": "deny", [`${PRIVATE_RUNTIME_CONTEXT_DIR}/cache/update-jobs/**`]: "allow" },
       glob: "allow",
       grep: "allow",
-      edit: { [`${DEFAULT_CONTEXT_DIR}/**`]: "allow", "*": "deny" },
-      write: { [`${DEFAULT_CONTEXT_DIR}/**`]: "allow", "*": "deny" },
-      patch: { [`${DEFAULT_CONTEXT_DIR}/**`]: "allow", "*": "deny" },
-      apply_patch: { [`${DEFAULT_CONTEXT_DIR}/**`]: "allow", "*": "deny" },
+      edit: { ...PROJECT_CONTEXT_WRITE_PERMISSION },
+      write: { ...PROJECT_CONTEXT_WRITE_PERMISSION },
+      patch: { ...PROJECT_CONTEXT_WRITE_PERMISSION },
+      apply_patch: { ...PROJECT_CONTEXT_WRITE_PERMISSION },
       bash: { "git status": "allow", "git status *": "allow", "git diff": "allow", "git diff *": "allow", "git log": "allow", "git log *": "allow", "npm run doctor": "allow", "npm run doctor *": "allow", "*": "deny" },
       webfetch: "deny",
       websearch: "deny",

@@ -435,14 +435,16 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
           promptInputs.push(input);
           const part = input.body.parts?.[0];
           if (part?.type === "subtask") {
+            assert.equal(input.body.noReply, undefined);
             const jobID = part.prompt.match(/Job ID:\s*(pcu_[a-z0-9_]+)/i)?.[1];
             assert.ok(jobID);
             assert.equal(part.agent, "project-context-maintainer");
             assert.equal(part.description, "Project Context Update");
             assert.equal(part.command, undefined);
-            assert.doesNotMatch(part.prompt, /latest user request|assistant final|git diff|\.crewbeectxt|HANDOFF\.md/i);
+            assert.doesNotMatch(part.prompt, /latest user request|assistant final|git diff|Payload path|Project root|\.crewbeectxt|HANDOFF\.md|cache\/update-jobs/i);
             const payloadPath = path.join(root, ".crewbee", ".prjctxt", "cache", "update-jobs", `${jobID}.json`);
-            assert.match(part.prompt.replaceAll("\\", "/"), new RegExp(payloadPath.replaceAll("\\", "/").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+            assert.doesNotMatch(part.prompt.replaceAll("\\", "/"), new RegExp(payloadPath.replaceAll("\\", "/").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+            assert.match(part.prompt, new RegExp(`PROJECT_CONTEXT_UPDATE_DONE job=${jobID} status=<ok\\|failed>`));
             const payload = JSON.parse(await readFile(payloadPath, "utf8"));
             updatePayloads.push({ path: payloadPath, payload });
             assert.equal(payload.kind, "project_context_update");
@@ -475,11 +477,19 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     assert.equal(config.agent["project-context-maintainer"].hidden, true);
     assert.equal(config.agent["project-context-maintainer"].mode, "subagent");
     assert.equal(config.agent["project-context-maintainer"].permission.read[".crewbee/.prjctxt/cache/update-jobs/**"], "allow");
+    assert.match(config.agent["project-context-maintainer"].prompt, /task prompt includes only a Job ID/i);
+    assert.match(config.agent["project-context-maintainer"].prompt, /\.crewbee\/\.prjctxt\/cache\/update-jobs\/<jobID>\.json/);
+    const contextWritePermissionKeys = ["*", ".crewbee/.prjctxt/**", "**/.crewbee/.prjctxt/**", ".crewbee\\.prjctxt\\**", "**\\.crewbee\\.prjctxt\\**"];
     assert.equal(config.agent["project-context-maintainer"].permission.edit[".crewbee/.prjctxt/**"], "allow");
-    assert.deepEqual(Object.keys(config.agent["project-context-maintainer"].permission.edit), [".crewbee/.prjctxt/**", "*"]);
-    assert.deepEqual(Object.keys(config.agent["project-context-maintainer"].permission.write), [".crewbee/.prjctxt/**", "*"]);
-    assert.deepEqual(Object.keys(config.agent["project-context-maintainer"].permission.patch), [".crewbee/.prjctxt/**", "*"]);
-    assert.deepEqual(Object.keys(config.agent["project-context-maintainer"].permission.apply_patch), [".crewbee/.prjctxt/**", "*"]);
+    assert.equal(config.agent["project-context-maintainer"].permission.edit["**/.crewbee/.prjctxt/**"], "allow");
+    assert.equal(config.agent["project-context-maintainer"].permission.edit[".crewbee\\.prjctxt\\**"], "allow");
+    assert.equal(config.agent["project-context-maintainer"].permission.edit["**\\.crewbee\\.prjctxt\\**"], "allow");
+    assert.equal(config.agent["project-context-maintainer"].permission.edit["*"], "deny");
+    assert.ok(Object.keys(config.agent["project-context-maintainer"].permission.edit).indexOf("*") < Object.keys(config.agent["project-context-maintainer"].permission.edit).indexOf("**/.crewbee/.prjctxt/**"));
+    assert.deepEqual(Object.keys(config.agent["project-context-maintainer"].permission.edit), contextWritePermissionKeys);
+    assert.deepEqual(Object.keys(config.agent["project-context-maintainer"].permission.write), contextWritePermissionKeys);
+    assert.deepEqual(Object.keys(config.agent["project-context-maintainer"].permission.patch), contextWritePermissionKeys);
+    assert.deepEqual(Object.keys(config.agent["project-context-maintainer"].permission.apply_patch), contextWritePermissionKeys);
     assert.equal(config.agent["project-context-maintainer"].permission.project_context_search, "deny");
     assert.equal(config.agent["project-context-maintainer"].permission["session.prompt"], "deny");
     assert.equal(config.agent["project-context-maintainer"].permission.bash["npm run doctor"], "allow");
@@ -496,6 +506,7 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     await assert.rejects(() => hooks["tool.execute.before"]({ tool: "project_context_search", sessionID: "child-session", callID: "c", agent: "worker" }, { args: { goal: "x" } }), /root primary-agent sessions/);
     await assert.rejects(() => hooks["tool.execute.before"]({ tool: "project_context_search", sessionID: "maintainer-session", callID: "c", agent: "project-context-maintainer" }, { args: { goal: "x" } }), /must not call project_context/);
     await assert.rejects(() => hooks["tool.execute.before"]({ tool: "read", sessionID: "s", callID: "c", agent: "coding-leader" }, { args: { filePath: ".crewbee/.prjctxt/HANDOFF.md" } }), /Project Context workspace is private/);
+    await assert.rejects(() => hooks["tool.execute.before"]({ tool: "read", sessionID: "s", callID: "private-dir", agent: "coding-leader" }, { args: { filePath: ".crewbee/.prjctxt" } }), /Project Context workspace is private/);
     await assert.rejects(() => hooks["tool.execute.before"]({ tool: "read", sessionID: "s", callID: "legacy", agent: "coding-leader" }, { args: { filePath: ".crewbeectxt/HANDOFF.md" } }), /Project Context workspace is private/);
     await assert.rejects(() => hooks["tool.execute.before"]({ tool: "read", sessionID: "s", callID: "runtime", agent: "coding-leader" }, { args: { filePath: ".crewbee/.prjctxt/cache/update-jobs/job.json" } }), /Project Context workspace is private/);
     await hooks["tool.execute.before"]({ tool: "read", sessionID: "s", callID: "runtime-maintainer", agent: "project-context-maintainer" }, { args: { filePath: ".crewbee/.prjctxt/cache/update-jobs/job.json" } });
@@ -531,7 +542,7 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
     await new Promise((resolve) => setTimeout(resolve, 10));
     assert.equal(promptCalls, 1);
-    const transformed = { messages: [{ info: { role: "assistant" }, parts: [{ type: "text", text: promptInputs[0].body.parts[0].text, metadata: { kind: "project_context_prepare" } }] }, { info: { role: "user" }, parts: [{ type: "text", text: "real user" }] }] };
+    const transformed = { messages: [{ info: { role: "assistant" }, parts: [{ type: "text", text: promptInputs[0].body.parts[0].text, metadata: { kind: "project_context_prepare", title: "Project Context Prepare Summary" } }] }, { info: { role: "user" }, parts: [{ type: "text", text: "real user" }] }] };
     await hooks["experimental.chat.messages.transform"]({}, transformed);
     assert.equal(transformed.messages.length, 1);
     assert.equal(transformed.messages[0].parts[0].text, "real user");
@@ -585,9 +596,10 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     assert.equal(promptAsyncCalls, 1);
 
     parentMessages = [
-      { info: { role: "user" }, parts: [{ type: "text", text: "Please implement auto update." }] },
+      { info: { id: "msg-implement-auto-update", role: "user" }, parts: [{ type: "text", text: "Please implement auto update." }] },
       { info: { role: "assistant" }, parts: [{ type: "text", text: "已实现 auto update。决定采用 Task card。下一步运行测试。" }] }
     ];
+    await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, { message: { id: "msg-implement-auto-update", sessionID: "parent-session", role: "user" }, parts: [{ type: "text", text: "Please implement auto update." }] });
     await hooks["tool.execute.before"]({ tool: "apply_patch", sessionID: "parent-session", callID: "patch", agent: "coding-leader" }, { args: { patchText: "*** Begin Patch\n*** Update File: src/example.ts\n@@\n-old\n+new\n*** End Patch" } });
     await hooks["tool.execute.after"]({ tool: "apply_patch", sessionID: "parent-session", callID: "patch", agent: "coding-leader" }, { result: "patched src/example.ts" });
     await hooks["tool.execute.before"]({ tool: "bash", sessionID: "parent-session", callID: "test", agent: "coding-leader" }, { args: { command: "npm test" } });
@@ -599,7 +611,9 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     assert.equal(createCalls, 1);
     const updateInput = promptInputs.find((input) => input.path.id === "parent-session" && input.body.parts?.[0]?.type === "subtask" && /Project Context Maintainer job: update/i.test(input.body.parts[0].prompt ?? ""));
     assert.ok(updateInput);
+    assert.equal(updateInput.body.noReply, undefined);
     assert.equal(updateInput.body.parts[0].agent, "project-context-maintainer");
+    assert.equal(updateInput.body.parts[0].command, undefined);
     assert.match(updateInput.body.parts[0].prompt, /Project Context Maintainer job: update/);
     assert.equal(promptInputs.some((input) => input.body.parts?.[0]?.text?.includes("Project Context update ·")), false);
     const transformedUpdate = { messages: [{ info: { role: "assistant" }, parts: [updateInput.body.parts[0], { type: "text", text: "normal assistant text" }] }] };
@@ -607,11 +621,58 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     assert.equal(transformedUpdate.messages.length, 1);
     assert.equal(transformedUpdate.messages[0].parts.length, 1);
     assert.equal(transformedUpdate.messages[0].parts[0].text, "normal assistant text");
+    const transformedMixedMaintainerTextAndSubtask = { messages: [{ info: { role: "user" }, parts: [{ type: "text", text: "Please inspect Project Context Maintainer job: update as plain text." }] }, { info: { role: "assistant" }, parts: [updateInput.body.parts[0], { type: "text", text: "normal assistant text" }] }] };
+    await hooks["experimental.chat.messages.transform"]({}, transformedMixedMaintainerTextAndSubtask);
+    assert.equal(transformedMixedMaintainerTextAndSubtask.messages.length, 2);
+    assert.match(transformedMixedMaintainerTextAndSubtask.messages[0].parts[0].text, /Project Context Maintainer job: update/);
+    assert.equal(transformedMixedMaintainerTextAndSubtask.messages[1].parts.length, 1);
+    assert.equal(transformedMixedMaintainerTextAndSubtask.messages[1].parts[0].text, "normal assistant text");
+    const transformedMaintainerPrompt = { messages: [{ info: { role: "user" }, parts: [{ type: "text", text: updateInput.body.parts[0].prompt }] }] };
+    await hooks["experimental.chat.messages.transform"]({}, transformedMaintainerPrompt);
+    assert.equal(transformedMaintainerPrompt.messages.length, 1);
+    assert.match(transformedMaintainerPrompt.messages[0].parts[0].text, /Project Context Maintainer job: update/);
+    const transformedMaintainerPromptByAgent = { messages: [{ info: { role: "user" }, parts: [{ type: "text", text: updateInput.body.parts[0].prompt }] }] };
+    await hooks["experimental.chat.messages.transform"]({ agent: "project-context-maintainer" }, transformedMaintainerPromptByAgent);
+    assert.equal(transformedMaintainerPromptByAgent.messages.length, 1);
+    const transformedUpdateResult = { messages: [{ info: { role: "assistant" }, parts: [{ type: "text", text: "Update job completed with warnings.\n\n- Files changed: none.\n- Decisions/state updated: none.\n- Verification recorded: none.\n- Blockers/warnings: write/edit capability was unavailable." }] }] };
+    await hooks["experimental.chat.messages.transform"]({}, transformedUpdateResult);
+    assert.equal(transformedUpdateResult.messages.length, 1);
+    assert.match(transformedUpdateResult.messages[0].parts[0].text, /Update job completed/);
     assert.ok(updatePayloads[0].payload.trigger.reasons.includes("verification"));
     assert.ok(updatePayloads[0].payload.trigger.reasons.includes("files_changed"));
     assert.ok(updatePayloads[0].payload.engineeringChanges.verification.some((event) => event.resultSummary.includes("tests passed")));
+    const taskResultOutput = { result: `<task_result>Files changed:\n- .crewbee/.prjctxt/HANDOFF.md\nVerification recorded: npm test</task_result>` };
+    await hooks["tool.execute.after"]({ tool: "task", sessionID: "parent-session", callID: "update-task", agent: "coding-leader", args: updateInput.body.parts[0] }, taskResultOutput);
+    assert.match(taskResultOutput.result, new RegExp(`PROJECT_CONTEXT_UPDATE_DONE job=${updatePayloads[0].payload.jobID} status=ok`));
+    assert.doesNotMatch(taskResultOutput.result, /Files changed|HANDOFF\.md|Verification recorded/);
+    const transformedSentinelResult = { messages: [{ info: { role: "assistant" }, parts: [{ type: "text", text: `task_id: t for resuming to continue this task\n<task_result>\nPROJECT_CONTEXT_UPDATE_DONE job=${updatePayloads[0].payload.jobID} status=ok\n</task_result>` }] }] };
+    await hooks["experimental.chat.messages.transform"]({}, transformedSentinelResult);
+    assert.equal(transformedSentinelResult.messages.length, 1);
+    const transformedCompletedTaskPart = { messages: [{ info: { role: "assistant" }, parts: [{ type: "tool", tool: "task", state: { status: "completed", output: `task_id: t\n<task_result>\nPROJECT_CONTEXT_UPDATE_DONE job=${updatePayloads[0].payload.jobID} status=ok\n</task_result>` } }] }] };
+    await hooks["experimental.chat.messages.transform"]({}, transformedCompletedTaskPart);
+    assert.equal(transformedCompletedTaskPart.messages.length, 1);
+    const transformedSyntheticSummary = { messages: [{ info: { role: "user" }, parts: [{ type: "text", text: "Summarize the task tool output above and continue with your task." }] }] };
+    await hooks["experimental.chat.messages.transform"]({}, transformedSyntheticSummary);
+    assert.equal(transformedSyntheticSummary.messages.length, 1);
+    const transformedNonMaintainerRuntimeText = { messages: [{ info: { role: "assistant" }, parts: [{ type: "text", text: `Normal discussion mentioning PROJECT_CONTEXT_UPDATE_DONE job=${updatePayloads[0].payload.jobID} status=failed and Files changed: none.` }] }] };
+    await hooks["experimental.chat.messages.transform"]({}, transformedNonMaintainerRuntimeText);
+    assert.equal(transformedNonMaintainerRuntimeText.messages.length, 1);
+    assert.match(transformedNonMaintainerRuntimeText.messages[0].parts[0].text, /Normal discussion/);
+    const transformedNonMaintainerReadCode = { messages: [{ info: { role: "tool" }, parts: [{ type: "text", text: `Read src/example.ts\nconst prompt = "Project Context Maintainer job: update";\nconst part = { type: "subtask", agent: "project-context-maintainer", prompt };` }] }] };
+    await hooks["experimental.chat.messages.transform"]({ sessionID: "parent-session", agent: "coding-leader" }, transformedNonMaintainerReadCode);
+    assert.equal(transformedNonMaintainerReadCode.messages.length, 1);
+    assert.match(transformedNonMaintainerReadCode.messages[0].parts[0].text, /Project Context Maintainer job: update/);
+    const transformedNonSubtaskPromptLikePart = { messages: [{ info: { role: "tool" }, parts: [{ type: "text", agent: "project-context-maintainer", prompt: "Project Context Maintainer job: update", text: "Tool/read payload that must remain visible." }] }] };
+    await hooks["experimental.chat.messages.transform"]({ sessionID: "parent-session", agent: "coding-leader" }, transformedNonSubtaskPromptLikePart);
+    assert.equal(transformedNonSubtaskPromptLikePart.messages.length, 1);
+    assert.equal(transformedNonSubtaskPromptLikePart.messages[0].parts.length, 1);
+    assert.match(transformedNonSubtaskPromptLikePart.messages[0].parts[0].text, /must remain visible/);
     await hooks["tool.execute.before"]({ tool: "read", sessionID: "runtime-update-child", callID: "payload-read-active", agent: "project-context-maintainer" }, { args: { filePath: updatePayloads[0].path } });
     await hooks["tool.execute.after"]({ tool: "read", sessionID: "runtime-update-child", callID: "payload-read-active", agent: "project-context-maintainer", args: { filePath: updatePayloads[0].path } }, { result: "payload read" });
+    const transformedMaintainerRead = { messages: [{ info: { role: "tool" }, parts: [{ type: "text", text: `Read payload ${updatePayloads[0].payload.jobID}\nProject Context Maintainer job: update` }] }] };
+    await hooks["experimental.chat.messages.transform"]({ sessionID: "runtime-update-child" }, transformedMaintainerRead);
+    assert.equal(transformedMaintainerRead.messages.length, 1);
+    assert.match(transformedMaintainerRead.messages[0].parts[0].text, /Read payload/);
     await waitFor(async () => {
       try {
         await readFile(updatePayloads[0].path, "utf8");
@@ -620,6 +681,10 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
         return true;
       }
     });
+    const postCleanupTaskResultOutput = { result: `<task_result>Update job completed.\nFiles changed:\n- .crewbee/.prjctxt/STATE.yaml\nVerification recorded: npm run doctor</task_result>` };
+    await hooks["tool.execute.after"]({ tool: "task", sessionID: "parent-session", callID: "update-task-post-cleanup", agent: "coding-leader", args: updateInput.body.parts[0] }, postCleanupTaskResultOutput);
+    assert.match(postCleanupTaskResultOutput.result, new RegExp(`PROJECT_CONTEXT_UPDATE_DONE job=${updatePayloads[0].payload.jobID} status=ok`));
+    assert.doesNotMatch(postCleanupTaskResultOutput.result, /Files changed|STATE\.yaml|Verification recorded/);
     const promptCallsAfterUpdateCleanup = promptCalls;
     await writeFile(path.join(root, ".crewbee", ".prjctxt", "HANDOFF.md"), "# Handoff\n\nMaintainer updated context after auto update.\n", "utf8");
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
@@ -628,6 +693,10 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     const postUpdateAssistantMessage = { message: { id: "msg-post-update-assistant", sessionID: "parent-session", role: "assistant" }, parts: [] };
     await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, postUpdateAssistantMessage);
     assert.equal(postUpdateAssistantMessage.parts.length, 0);
+    assert.equal(promptCalls, promptCallsAfterUpdateCleanup);
+    await hooks.event({ event: { type: "message.updated", properties: { sessionID: "parent-session", info: { role: "user" }, parts: [{ type: "text", text: "Summarize the task tool output above and continue with your task." }] } } });
+    await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
+    await new Promise((resolve) => setTimeout(resolve, 10));
     assert.equal(promptCalls, promptCallsAfterUpdateCleanup);
     const postUpdateVisiblePrepare = { message: { id: "msg-post-update-prepare", sessionID: "parent-session", role: "user" }, parts: [] };
     await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, postUpdateVisiblePrepare);
@@ -708,7 +777,7 @@ test("OpenCode prepare summary falls back to synthetic ignored chat part for Web
     assert.equal(promptCalls, 1);
     assert.equal(visiblePrepare.parts.length, 0);
 
-    const transformed = { messages: [{ info: { role: "assistant" }, parts: [{ type: "text", text: "real user" }, { type: "text", text: "Project Context Prepare Summary · compact · revision abc123", metadata: { kind: "project_context_prepare" } }] }] };
+    const transformed = { messages: [{ info: { role: "assistant" }, parts: [{ type: "text", text: "real user" }, { type: "text", text: "Project Context Prepare Summary · compact · revision abc123", metadata: { kind: "project_context_prepare", title: "Project Context Prepare Summary" } }] }] };
     await hooks["experimental.chat.messages.transform"]({}, transformed);
     assert.equal(transformed.messages.length, 1);
     assert.equal(transformed.messages[0].parts.length, 1);
@@ -832,13 +901,135 @@ test("OpenCode auto-update does not run for template scaffold without file chang
   }
 });
 
+test("OpenCode auto-update waits for assistant response in current user turn", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-turn-bound-update-"));
+  try {
+    const prompts = [];
+    const parentMessages = [{ info: { id: "turn-user", role: "user" }, parts: [{ type: "text", text: "Implement turn-bound update." }] }];
+    const client = {
+      session: {
+        async get(input) {
+          return { id: input.path.id, directory: root };
+        },
+        async messages() {
+          return parentMessages;
+        },
+        async prompt(input) {
+          prompts.push(input);
+          return {};
+        },
+        async status() {
+          return { "maintainer-session": { type: "idle" } };
+        }
+      }
+    };
+    await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
+    await populateTemplateContext(root);
+    const hooks = await publicApi.ProjectContextOpenCodePlugin.server({ client, worktree: root, directory: root });
+
+    await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, { message: { id: "turn-user", sessionID: "parent-session", role: "user" }, parts: [{ type: "text", text: "Implement turn-bound update." }] });
+    await hooks["tool.execute.before"]({ tool: "apply_patch", sessionID: "parent-session", callID: "patch", agent: "coding-leader" }, { args: { patchText: "*** Begin Patch\n*** Update File: src/feature.ts\n@@\n-old\n+new\n*** End Patch" } });
+    await hooks["tool.execute.after"]({ tool: "apply_patch", sessionID: "parent-session", callID: "patch", agent: "coding-leader" }, { result: "patched src/feature.ts" });
+    await hooks["tool.execute.before"]({ tool: "bash", sessionID: "parent-session", callID: "test", agent: "coding-leader" }, { args: { command: "npm test" } });
+    await hooks["tool.execute.after"]({ tool: "bash", sessionID: "parent-session", callID: "test", agent: "coding-leader" }, { result: "tests passed" });
+
+    await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(prompts.some((input) => input.body.parts?.[0]?.type === "subtask"), false);
+
+    parentMessages.push({ info: { role: "assistant" }, parts: [{ type: "text", text: "已实现 turn-bound update。下一步已完成验证。" }] });
+    await hooks.event({ event: { type: "message.updated", properties: { sessionID: "parent-session", info: { role: "assistant" }, parts: [{ type: "text", text: "已实现 turn-bound update。下一步已完成验证。" }] } } });
+    await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
+    await waitFor(() => prompts.some((input) => input.body.parts?.[0]?.type === "subtask"), 6000);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenCode auto-update does not treat unknown-role messages as user turns", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-unknown-role-update-"));
+  try {
+    const prompts = [];
+    const client = {
+      session: {
+        async get(input) {
+          return { id: input.path.id, directory: root };
+        },
+        async messages() {
+          return [];
+        },
+        async prompt(input) {
+          prompts.push(input);
+          return {};
+        }
+      }
+    };
+    await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
+    await populateTemplateContext(root);
+    const hooks = await publicApi.ProjectContextOpenCodePlugin.server({ client, worktree: root, directory: root });
+
+    await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, { message: { id: "unknown-role", sessionID: "parent-session" }, parts: [{ type: "text", text: "Looks like a user message but has no role." }] });
+    await hooks["tool.execute.before"]({ tool: "apply_patch", sessionID: "parent-session", callID: "patch", agent: "coding-leader" }, { args: { patchText: "*** Begin Patch\n*** Update File: src/feature.ts\n@@\n-old\n+new\n*** End Patch" } });
+    await hooks["tool.execute.after"]({ tool: "apply_patch", sessionID: "parent-session", callID: "patch", agent: "coding-leader" }, { result: "patched src/feature.ts" });
+    await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    assert.equal(prompts.some((input) => input.body.parts?.[0]?.type === "subtask"), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenCode auto-update does not rebind stale material to later scanned turns", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-stale-turn-update-"));
+  try {
+    const prompts = [];
+    const parentMessages = [
+      { info: { id: "old-user", role: "user" }, parts: [{ type: "text", text: "Implement old feature." }] },
+      { info: { role: "assistant" }, parts: [{ type: "text", text: "已实现 old feature。" }] }
+    ];
+    const client = {
+      session: {
+        async get(input) {
+          return { id: input.path.id, directory: root };
+        },
+        async messages() {
+          return parentMessages;
+        },
+        async prompt(input) {
+          prompts.push(input);
+          return {};
+        }
+      }
+    };
+    await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
+    await populateTemplateContext(root);
+    const hooks = await publicApi.ProjectContextOpenCodePlugin.server({ client, worktree: root, directory: root });
+
+    await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, { message: { id: "old-user", sessionID: "parent-session", role: "user" }, parts: [{ type: "text", text: "Implement old feature." }] });
+    await hooks["tool.execute.before"]({ tool: "apply_patch", sessionID: "parent-session", callID: "patch", agent: "coding-leader" }, { args: { patchText: "*** Begin Patch\n*** Update File: src/old.ts\n@@\n-old\n+new\n*** End Patch" } });
+    await hooks["tool.execute.after"]({ tool: "apply_patch", sessionID: "parent-session", callID: "patch", agent: "coding-leader" }, { result: "patched src/old.ts" });
+
+    parentMessages.push(
+      { info: { role: "user" }, parts: [{ type: "text", text: "Start unrelated next turn." }] },
+      { info: { role: "assistant" }, parts: [{ type: "text", text: "No engineering changes in this turn." }] }
+    );
+    await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    assert.equal(prompts.some((input) => input.body.parts?.[0]?.type === "subtask"), false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("OpenCode auto-update failures are best-effort and do not retry without new material", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-update-failure-"));
   try {
     const attemptedJobIDs = new Set();
     const attemptedPayloadPaths = [];
     const parentMessages = [
-      { info: { role: "user" }, parts: [{ type: "text", text: "Implement the feature." }] },
+      { info: { id: "failure-user", role: "user" }, parts: [{ type: "text", text: "Implement the feature." }] },
       { info: { role: "assistant" }, parts: [{ type: "text", text: "已实现 feature。决定采用最小方案。下一步运行测试。" }] }
     ];
     let hooks;
@@ -870,6 +1061,7 @@ test("OpenCode auto-update failures are best-effort and do not retry without new
     await populateTemplateContext(root);
     hooks = await publicApi.ProjectContextOpenCodePlugin.server({ client, worktree: root, directory: root });
 
+    await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, { message: { id: "failure-user", sessionID: "parent-session", role: "user" }, parts: [{ type: "text", text: "Implement the feature." }] });
     await hooks["tool.execute.before"]({ tool: "apply_patch", sessionID: "parent-session", callID: "patch", agent: "coding-leader" }, { args: { patchText: "*** Begin Patch\n*** Update File: src/feature.ts\n@@\n-old\n+new\n*** End Patch" } });
     await hooks["tool.execute.after"]({ tool: "apply_patch", sessionID: "parent-session", callID: "patch", agent: "coding-leader" }, { result: "patched src/feature.ts" });
     await hooks["tool.execute.before"]({ tool: "bash", sessionID: "parent-session", callID: "test", agent: "coding-leader" }, { args: { command: "npm test" } });
@@ -1255,6 +1447,44 @@ test("maintainer subsession runner refuses blocking prompt fallback", async () =
     assert.equal(result.ok, false);
     assert.match(result.error, /promptAsync/);
     assert.equal(promptCalled, false);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("maintainer update subtask submission does not fail when OpenCode prompt stays streaming", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-update-submit-"));
+  const calls = [];
+  const client = {
+    session: {
+      async prompt(input) {
+        calls.push(input);
+        return new Promise(() => {});
+      }
+    }
+  };
+  try {
+    const runner = new MaintainerSubsessionRunner(client);
+    const startedAt = Date.now();
+    const result = await runner.run({
+      kind: "update",
+      title: "Project Context Update",
+      callerSessionID: "parent-session",
+      callerAgent: "project-context-maintainer",
+      projectRoot: root,
+      payload: { jobID: "pcu_streaming_prompt" }
+    }, { timeoutMs: 5000 });
+
+    assert.equal(result.ok, true);
+    assert.equal(calls.length, 1);
+    assert.ok(Date.now() - startedAt < 3000);
+    const part = calls[0].body.parts[0];
+    assert.equal(calls[0].body.noReply, undefined);
+    assert.equal(part.type, "subtask");
+    assert.equal(part.command, undefined);
+    assert.match(part.prompt, /Job ID: pcu_streaming_prompt/);
+    assert.match(part.prompt, /PROJECT_CONTEXT_UPDATE_DONE job=pcu_streaming_prompt status=<ok\|failed>/);
+    assert.doesNotMatch(part.prompt, /Payload path|Payload JSON|Project root|cache\/update-jobs/i);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

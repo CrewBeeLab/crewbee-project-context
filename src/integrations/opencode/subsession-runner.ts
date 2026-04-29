@@ -51,6 +51,7 @@ const DEFAULT_JOB_TIMEOUT_MS: Record<MaintainerJobKind, number> = {
 };
 const DEFAULT_POLL_INTERVAL_MS = 500;
 const API_CALL_TIMEOUT_MS = 15_000;
+const UPDATE_SUBTASK_SUBMIT_OBSERVE_MS = 1_000;
 const MAINTAINER_DISABLED_TOOLS = {
   project_context_search: false
 } as const;
@@ -74,6 +75,8 @@ function aborted(signal: AbortSignal | undefined): boolean {
   return signal?.aborted === true;
 }
 
+type ObservedPromptSubmit = "accepted" | "pending";
+
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -81,6 +84,20 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
       promise,
       new Promise<T>((_, reject) => {
         timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+async function observePromptSubmit(input: { promise: Promise<unknown>; timeoutMs: number }): Promise<ObservedPromptSubmit> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      input.promise.then(() => "accepted" as const),
+      new Promise<"pending">((resolve) => {
+        timer = setTimeout(() => resolve("pending"), input.timeoutMs);
       })
     ]);
   } finally {
@@ -198,11 +215,28 @@ function readSessionStatusType(statuses: unknown, sessionID: string): string | u
 
 function renderJob(job: MaintainerJob): string {
   const jobID = typeof job.payload?.jobID === "string" ? job.payload.jobID : undefined;
-  const payloadPath = typeof job.payload?.payloadPath === "string" ? job.payload.payloadPath : undefined;
+  if (job.kind === "update") {
+    return [
+      "Project Context Maintainer job: update",
+      jobID ? `Job ID: ${jobID}` : undefined,
+      "",
+      "Load the update payload from the private Project Context job store.",
+      "Use the payload as the source of truth for this update.",
+      "Update only the private Project Context scaffold.",
+      "Do not modify product code.",
+      "Do not expose private scaffold paths in user-facing output.",
+      "",
+      "Completion protocol:",
+      "- After the scaffold update and checks are complete, do not summarize details.",
+      "- Do not list changed scaffold files.",
+      "- Do not include decisions, diff summaries, verification output, or private paths.",
+      "- Your final response must be exactly one compact sentinel line:",
+      jobID ? `PROJECT_CONTEXT_UPDATE_DONE job=${jobID} status=<ok|failed>` : "PROJECT_CONTEXT_UPDATE_DONE job=<jobID> status=<ok|failed>"
+    ].filter((line): line is string => typeof line === "string").join("\n");
+  }
   return [
     `Project Context Maintainer job: ${job.kind}`,
     jobID ? `Job ID: ${jobID}` : undefined,
-    payloadPath ? `Payload path: ${payloadPath}` : undefined,
     `Caller agent: ${job.callerAgent}`,
     `Project root: ${job.projectRoot}`,
     job.goal ? `Goal: ${job.goal}` : undefined,
@@ -232,14 +266,20 @@ export class MaintainerSubsessionRunner {
       if (aborted(options.abort)) return { ok: false, output: "", error: "Maintainer subsession was aborted before start." };
 
       if (job.kind === "update" && hasSessionMethod(this.client, "prompt")) {
-        await withTimeout(sessionPrompt(this.client, {
+        const promptPromise = sessionPrompt(this.client, {
           sessionID: job.callerSessionID,
           body: {
             parts: [{ type: "subtask" as const, prompt: renderJob(job), description: job.title, agent: PROJECT_CONTEXT_MAINTAINER_AGENT_ID }]
           },
           query
-        }), Math.min(API_CALL_TIMEOUT_MS, timeoutMs), "OpenCode maintainer update subtask prompt");
-        await writeRunLog(job.projectRoot, { event: "subtask-submitted", runId: id, jobKind: job.kind, callerAgent: job.callerAgent, sessionID: job.callerSessionID, elapsedMs: Date.now() - startedAt });
+        });
+        const observed = await observePromptSubmit({ promise: promptPromise, timeoutMs: Math.min(UPDATE_SUBTASK_SUBMIT_OBSERVE_MS, timeoutMs) });
+        if (observed === "pending") {
+          promptPromise.catch((error: unknown) => {
+            void writeRunLog(job.projectRoot, { event: "subtask-submit-failed", runId: id, jobKind: job.kind, callerAgent: job.callerAgent, sessionID: job.callerSessionID, elapsedMs: Date.now() - startedAt, error: error instanceof Error ? error.message : String(error) });
+          });
+        }
+        await writeRunLog(job.projectRoot, { event: observed === "accepted" ? "subtask-submitted" : "subtask-submit-pending", runId: id, jobKind: job.kind, callerAgent: job.callerAgent, sessionID: job.callerSessionID, elapsedMs: Date.now() - startedAt });
         return { ok: true, output: "Project Context update subtask submitted." };
       }
 

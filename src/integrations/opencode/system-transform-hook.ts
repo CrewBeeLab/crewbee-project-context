@@ -5,7 +5,7 @@ import { ProjectContextService } from "../../service/project-context-service.js"
 import { hasSessionMethod, sessionGet, sessionPrompt } from "./client-adapter.js";
 import type { OpenCodeClientLike } from "./types.js";
 import { writeRuntimeLog } from "./runtime-log.js";
-import { redactPrivateContextPaths } from "./visibility.js";
+import { isProjectContextMaintainer, redactPrivateContextPaths } from "./visibility.js";
 
 const RUNTIME_RULE = [
   "Project Context is prepared automatically when needed.",
@@ -23,7 +23,6 @@ interface PreparedSessionState {
 
 const preparedSessions = new Map<string, PreparedSessionState>();
 const PREPARE_STATUS_TITLE = "Project Context Prepare Summary";
-const RUNTIME_VISIBLE_TEXT = /Project Context (Prepare Summary|prepared) · compact · revision|Project Context Maintainer job: update|Project Context Update|project_context_update|pcu_[a-z0-9_]+/i;
 let partCounter = 0;
 
 function projectName(projectRoot: string): string {
@@ -210,12 +209,13 @@ async function ensureProjectContextInitialized(input: { service: ProjectContextS
   await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "auto-init-scaffold", sessionID: input.sessionID, details: { created: init.created.length, skipped: init.skipped.length, errors: validation.errors.length } });
 }
 
-function hasPrepareMetadata(value: unknown): boolean {
+function hasExactPrepareMetadata(value: unknown): boolean {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
   const metadata = record.metadata;
-  if (typeof metadata === "object" && metadata !== null && !Array.isArray(metadata) && (metadata as Record<string, unknown>).kind === "project_context_prepare") return true;
-  return Object.values(record).some(hasPrepareMetadata);
+  return typeof metadata === "object" && metadata !== null && !Array.isArray(metadata)
+    && (metadata as Record<string, unknown>).kind === "project_context_prepare"
+    && (metadata as Record<string, unknown>).title === PREPARE_STATUS_TITLE;
 }
 
 function readRole(value: unknown): string | undefined {
@@ -227,6 +227,22 @@ function readRole(value: unknown): string | undefined {
     if (typeof nested === "object" && nested !== null && !Array.isArray(nested)) {
       const role = readRole(nested);
       if (role !== undefined) return role;
+    }
+  }
+  return undefined;
+}
+
+function readAgent(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (typeof record.agent === "string") return record.agent;
+  if (typeof record.subagent_type === "string") return record.subagent_type;
+  if (typeof record.subagent === "string") return record.subagent;
+  for (const key of ["message", "info", "properties", "metadata"]) {
+    const nested = record[key];
+    if (typeof nested === "object" && nested !== null && !Array.isArray(nested)) {
+      const agent = readAgent(nested);
+      if (agent !== undefined) return agent;
     }
   }
   return undefined;
@@ -250,14 +266,34 @@ function collectText(value: unknown, output: string[]): void {
   for (const key of ["text", "content", "output", "prompt", "description"]) {
     if (typeof record[key] === "string") output.push(record[key]);
   }
-  for (const key of ["parts", "message", "data", "properties", "info"]) collectText(record[key], output);
+  for (const key of ["parts", "message", "data", "properties", "info", "state", "metadata"]) collectText(record[key], output);
 }
 
-function isPrepareRuntimeMessage(message: { info?: unknown; parts?: unknown[] } | { message?: unknown; parts?: unknown[] }): boolean {
-  if (hasPrepareMetadata(message)) return true;
+function isProjectContextRuntimeMessage(message: { info?: unknown; parts?: unknown[] } | { message?: unknown; parts?: unknown[] }): boolean {
+  const prepareSurfaces = [message, ...(Array.isArray(message.parts) ? message.parts : [])].filter(hasExactPrepareMetadata);
+  return prepareSurfaces.some((surface) => {
+    const chunks: string[] = [];
+    collectText(surface, chunks);
+    return /Project Context Prepare Summary · compact · revision/i.test(chunks.join("\n"));
+  });
+}
+
+function isSyntheticPreparePart(part: unknown): boolean {
+  if (!hasExactPrepareMetadata(part)) return false;
   const chunks: string[] = [];
-  collectText(message, chunks);
-  return RUNTIME_VISIBLE_TEXT.test(chunks.join("\n"));
+  collectText(part, chunks);
+  return /Project Context Prepare Summary · compact · revision/i.test(chunks.join("\n"));
+}
+
+function isMaintainerPromptPart(part: unknown): boolean {
+  if (typeof part !== "object" || part === null || Array.isArray(part)) return false;
+  const record = part as Record<string, unknown>;
+  return record.type === "subtask" && isProjectContextMaintainer(readAgent(record)) && typeof record.prompt === "string" && /Project Context Maintainer job:/i.test(record.prompt);
+}
+
+function isMaintainerContext(hookInput: { sessionID?: string; agent?: string; model?: unknown } | undefined, output: { messages: { info?: unknown; parts?: unknown[] }[] }): boolean {
+  if (isProjectContextMaintainer(hookInput?.agent)) return true;
+  return output.messages.some((message) => isProjectContextMaintainer(readAgent(message.info)) && !message.parts?.some(isMaintainerPromptPart));
 }
 
 export function createProjectContextSystemTransformHook(input: { service: ProjectContextService; client: OpenCodeClientLike; projectRoot: string; onMaintainerSessionCreated?: (sessionID: string) => void }) {
@@ -315,7 +351,7 @@ export function createProjectContextSystemTransformHook(input: { service: Projec
     await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "auto-prepare", sessionID: hookInput.sessionID, details: { estimatedTokens: brief.estimatedTokens, warnings: brief.warnings.length } });
   };
   hook.visibleChatMessage = async (hookInput: { sessionID?: string; messageID?: string; agent?: string; model?: unknown }, output: { message?: unknown; parts?: unknown[] }): Promise<void> => {
-    if (isPrepareRuntimeMessage(output)) return;
+    if (isProjectContextRuntimeMessage(output)) return;
     if (blocksVisiblePrepareRole(readRole(output) ?? readRole(output.message))) return;
     if (!(await shouldInjectProjectContext(hookInput, input.client, input.projectRoot))) return;
     await ensureProjectContextInitialized({
@@ -351,14 +387,16 @@ export function createProjectContextSystemTransformHook(input: { service: Projec
     if (!sessionID) return;
     await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "skip-visible-prepare-idle", sessionID });
   };
-  hook.transformMessages = (output: { messages: { info?: unknown; parts?: unknown[] }[] }): void => {
-    output.messages = output.messages.flatMap((message) => {
-      const originalPrepareMessage = isPrepareRuntimeMessage(message);
-      if (!Array.isArray(message.parts)) return originalPrepareMessage ? [] : [message];
-      const filtered = { ...message, parts: message.parts.filter((part) => !isPrepareRuntimeMessage({ parts: [part] })) };
-      if (filtered.parts.length === 0 && originalPrepareMessage) return [];
+  hook.transformMessages = (hookInput: { sessionID?: string; agent?: string; model?: unknown } | undefined, output: { messages: { info?: unknown; parts?: unknown[] }[] }): void => {
+    if (isMaintainerContext(hookInput, output)) return;
+    const messages = output.messages.flatMap((message) => {
+      const originalRuntimeMessage = isProjectContextRuntimeMessage(message);
+      if (!Array.isArray(message.parts)) return originalRuntimeMessage ? [] : [message];
+      const filtered = { ...message, parts: message.parts.filter((part) => !isMaintainerPromptPart(part) && !isSyntheticPreparePart(part)) };
+      if (filtered.parts.length === 0) return [];
       return [filtered];
     });
+    output.messages.splice(0, output.messages.length, ...messages);
   };
   return hook;
 }
