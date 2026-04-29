@@ -6,6 +6,7 @@ import { hasSessionMethod, sessionGet, sessionPrompt } from "./client-adapter.js
 import type { OpenCodeClientLike } from "./types.js";
 import { writeRuntimeLog } from "./runtime-log.js";
 import { isProjectContextMaintainer, redactPrivateContextPaths } from "./visibility.js";
+import { readProjectContextEnabled } from "./project-config.js";
 
 const RUNTIME_RULE = [
   "Project Context is prepared automatically when needed.",
@@ -297,6 +298,12 @@ function isMaintainerContext(hookInput: { sessionID?: string; agent?: string; mo
 }
 
 export function createProjectContextSystemTransformHook(input: { service: ProjectContextService; client: OpenCodeClientLike; projectRoot: string; onMaintainerSessionCreated?: (sessionID: string) => void }) {
+  const projectContextEnabled = async (sessionID: string | undefined): Promise<boolean> => {
+    const config = await readProjectContextEnabled(input.projectRoot);
+    if (config.error !== undefined) await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "config-read-failed", sessionID, details: { configPath: config.configPath }, error: config.error });
+    if (!config.enabled) await writeRuntimeLog(input.projectRoot, { component: "system-transform", event: "skip-disabled-by-project-config", sessionID, details: { configPath: config.configPath } });
+    return config.enabled;
+  };
   const flushVisiblePrepare = async (sessionID: string, mode: "chat-message" | "idle", output?: { message?: unknown; parts?: unknown[] }, messageID?: string): Promise<void> => {
     const state = preparedSessions.get(sessionID);
     if (!state?.visibleSummaryPending || state.visibleFlushInFlight === true) return;
@@ -319,6 +326,7 @@ export function createProjectContextSystemTransformHook(input: { service: Projec
     }
   };
   const hook = async (hookInput: { sessionID?: string; model: unknown }, output: { system: string[] }): Promise<void> => {
+    if (!await projectContextEnabled(hookInput.sessionID)) return;
     if (!(await shouldInjectProjectContext(hookInput, input.client, input.projectRoot))) return;
     await ensureProjectContextInitialized({
       service: input.service,
@@ -353,6 +361,7 @@ export function createProjectContextSystemTransformHook(input: { service: Projec
   hook.visibleChatMessage = async (hookInput: { sessionID?: string; messageID?: string; agent?: string; model?: unknown }, output: { message?: unknown; parts?: unknown[] }): Promise<void> => {
     if (isProjectContextRuntimeMessage(output)) return;
     if (blocksVisiblePrepareRole(readRole(output) ?? readRole(output.message))) return;
+    if (!await projectContextEnabled(hookInput.sessionID)) return;
     if (!(await shouldInjectProjectContext(hookInput, input.client, input.projectRoot))) return;
     await ensureProjectContextInitialized({
       service: input.service,

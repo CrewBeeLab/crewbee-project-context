@@ -10,6 +10,7 @@ import { writeRuntimeLog } from "./runtime-log.js";
 import { MaintainerSubsessionRunner } from "./subsession-runner.js";
 import type { OpenCodeClientLike } from "./types.js";
 import { redactPrivateContextPaths } from "./visibility.js";
+import { readProjectContextEnabled } from "./project-config.js";
 
 const execFileAsync = promisify(execFile);
 const UPDATE_JOB_RETENTION_MS = 30 * 60 * 1000;
@@ -421,8 +422,9 @@ export class AutoUpdateManager {
   public async handleEvent(input: { event: unknown }): Promise<void> {
     const type = readEventType(input.event);
     const sessionID = readSessionID(input.event);
+    const idleEvent = type === "session.idle" || (type === "session.status" && readStatusType(input.event) === "idle");
     if (sessionID && this.maintainerSessions.has(sessionID)) {
-      if (type === "session.idle" || (type === "session.status" && readStatusType(input.event) === "idle")) {
+      if (idleEvent) {
         await this.cleanupMaintainerUpdateJob(sessionID, "maintainer_idle");
       }
       return;
@@ -435,6 +437,7 @@ export class AutoUpdateManager {
         return;
       }
     }
+    if (sessionID && (type?.startsWith("message.") || idleEvent) && !await this.projectContextEnabled(sessionID)) return;
     if (sessionID && await this.shouldIgnoreSession(sessionID)) return;
     if (type?.startsWith("message.")) {
       if (!sessionID) return;
@@ -450,7 +453,7 @@ export class AutoUpdateManager {
       }
       return;
     }
-    if (type !== "session.idle" && !(type === "session.status" && readStatusType(input.event) === "idle")) return;
+    if (!idleEvent) return;
     if (!sessionID) return;
     await this.captureLatestSessionMessages(sessionID);
     await this.drainSession(sessionID);
@@ -470,6 +473,13 @@ export class AutoUpdateManager {
     } catch {
       return false;
     }
+  }
+
+  private async projectContextEnabled(sessionID: string): Promise<boolean> {
+    const config = await readProjectContextEnabled(this.input.projectRoot);
+    if (config.error !== undefined) await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "config-read-failed", sessionID, details: { configPath: config.configPath }, error: config.error });
+    if (!config.enabled) await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "skipped", sessionID, details: { reason: "disabled_by_project_config", configPath: config.configPath } });
+    return config.enabled;
   }
 
   private async captureLatestSessionMessages(sessionID: string): Promise<void> {

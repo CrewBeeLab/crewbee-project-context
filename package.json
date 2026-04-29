@@ -1,6 +1,6 @@
 {
   "name": "crewbee-project-context",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "Lightweight project context layer for Agent Coding and CrewBee integration.",
   "type": "module",
   "license": "MIT",

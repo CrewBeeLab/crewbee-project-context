@@ -794,6 +794,58 @@ test("OpenCode prepare summary falls back to synthetic ignored chat part for Web
   }
 });
 
+test("OpenCode project context prepare and update can be disabled by project crewbee config", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-disabled-"));
+  try {
+    let getCalls = 0;
+    let messagesCalls = 0;
+    let promptCalls = 0;
+    const client = {
+      session: {
+        async get(input) {
+          getCalls += 1;
+          return { id: input.path.id, directory: root };
+        },
+        async messages() {
+          messagesCalls += 1;
+          return [
+            { info: { id: "disabled-user", role: "user" }, parts: [{ type: "text", text: "Implement disabled update path." }] },
+            { info: { role: "assistant" }, parts: [{ type: "text", text: "已实现 disabled update path。下一步已完成验证。" }] }
+          ];
+        },
+        async prompt(input) {
+          promptCalls += 1;
+          return {};
+        }
+      }
+    };
+    await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
+    await populateTemplateContext(root);
+    await writeFile(path.join(root, ".crewbee", "crewbee.json"), JSON.stringify({ "crewbee-project-context": { enabled: false } }, null, 2), "utf8");
+    const hooks = await publicApi.ProjectContextOpenCodePlugin.server({ client, worktree: root, directory: root });
+
+    const visiblePrepare = { message: { id: "disabled-visible", sessionID: "parent-session", role: "user" }, parts: [] };
+    await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, visiblePrepare);
+    const system = { system: [] };
+    await hooks["experimental.chat.system.transform"]({ sessionID: "parent-session", model: {} }, system);
+    assert.equal(visiblePrepare.parts.length, 0);
+    assert.equal(system.system.length, 0);
+
+    await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, { message: { id: "disabled-user", sessionID: "parent-session", role: "user" }, parts: [{ type: "text", text: "Implement disabled update path." }] });
+    await hooks["tool.execute.before"]({ tool: "apply_patch", sessionID: "parent-session", callID: "patch", agent: "coding-leader" }, { args: { patchText: "*** Begin Patch\n*** Update File: src/feature.ts\n@@\n-old\n+new\n*** End Patch" } });
+    await hooks["tool.execute.after"]({ tool: "apply_patch", sessionID: "parent-session", callID: "patch", agent: "coding-leader" }, { result: "patched src/feature.ts" });
+    await hooks.event({ event: { type: "message.updated", properties: { sessionID: "parent-session", info: { role: "assistant" }, parts: [{ type: "text", text: "已实现 disabled update path。下一步已完成验证。" }] } } });
+    await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    assert.equal(getCalls, 0);
+    assert.equal(messagesCalls, 0);
+    assert.equal(promptCalls, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("OpenCode GeneralAgent plain message prepares context without triggering update", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-general-agent-"));
   try {
