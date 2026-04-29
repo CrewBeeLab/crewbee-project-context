@@ -1,6 +1,6 @@
 {
   "name": "crewbee-project-context",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Lightweight project context layer for Agent Coding and CrewBee integration.",
   "type": "module",
   "license": "MIT",
@@ -11,7 +11,7 @@
     "./server": "./opencode-plugin.mjs"
   },
   "bin": {
-    "crewbee-project-context": "./bin/crewbee-project-context.js"
+    "crewbee-project-context": "bin/crewbee-project-context.js"
   },
   "files": [
     "dist/",

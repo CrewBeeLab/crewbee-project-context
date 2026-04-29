@@ -7,7 +7,7 @@ import { writeRuntimeLog } from "../integrations/opencode/runtime-log.js";
 import { findConfiguredProjectContextReleaseIntent } from "./intent.js";
 import { fetchTargetVersion } from "./registry.js";
 import { acquireProjectContextReleaseLock, readProjectContextReleaseState, releaseProjectContextReleaseLock, writeProjectContextReleaseState } from "./state.js";
-import { invalidateWorkspacePackage, readInstalledWorkspaceVersion, syncWorkspaceDependencyIntent } from "./workspace.js";
+import { readInstalledWorkspaceVersion, syncWorkspaceDependencyIntent } from "./workspace.js";
 import type { ProjectContextReleaseCheckResult, ProjectContextReleaseRefreshDependencies } from "./types.js";
 
 const SUCCESS_RECHECK_MS = 60 * 60 * 1000;
@@ -55,7 +55,6 @@ export async function runBackgroundReleaseRefresh(_ctx: OpenCodePluginInputLike,
     }
     await writeRuntimeLog(projectRoot, { component: "release-refresh", event: "newer-version", details: { currentVersion, latestVersion, workspaceRoot: intent.workspaceRoot } });
     syncWorkspaceDependencyIntent(intent, latestVersion);
-    invalidateWorkspacePackage(intent);
     const installed = await deps.runInstall(intent.workspaceRoot);
     if (!installed) {
       writeProjectContextReleaseState({ ...state, lastCheckedAt: now, lastAttemptedVersion: latestVersion, lastFailure: `Failed to install ${latestVersion}`, lastFailureAt: now, lastKnownVersion: currentVersion });

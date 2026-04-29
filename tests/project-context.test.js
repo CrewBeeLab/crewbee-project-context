@@ -1056,6 +1056,48 @@ test("Project Context release refresh updates latest workspace like CrewBee", as
   }
 });
 
+test("Project Context release refresh keeps existing package when install fails", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-release-fail-"));
+  const configHome = await mkdtemp(path.join(os.tmpdir(), "crewbee-config-"));
+  const cacheHome = await mkdtemp(path.join(os.tmpdir(), "crewbee-cache-"));
+  const previousConfigHome = process.env.XDG_CONFIG_HOME;
+  const previousCacheHome = process.env.XDG_CACHE_HOME;
+  try {
+    process.env.XDG_CONFIG_HOME = configHome;
+    process.env.XDG_CACHE_HOME = cacheHome;
+    const configRoot = path.join(configHome, "opencode");
+    const workspaceRoot = path.join(cacheHome, "opencode", "packages", "crewbee-project-context@latest");
+    const packageRoot = path.join(workspaceRoot, "node_modules", "crewbee-project-context");
+    await mkdir(packageRoot, { recursive: true });
+    await mkdir(configRoot, { recursive: true });
+    await writeFile(path.join(configRoot, "opencode.json"), JSON.stringify({ plugin: ["crewbee-project-context@latest"] }, null, 2), "utf8");
+    await writeFile(path.join(packageRoot, "package.json"), JSON.stringify({ name: "crewbee-project-context", version: "0.1.4" }), "utf8");
+
+    const result = await runBackgroundReleaseRefresh({ client: {}, worktree: root, directory: root }, root, {
+      async fetchJson() {
+        return { "dist-tags": { latest: "0.1.5" } };
+      },
+      async runInstall(targetWorkspaceRoot) {
+        assert.equal(targetWorkspaceRoot, workspaceRoot);
+        return false;
+      }
+    });
+
+    assert.equal(result.needsRefresh, true);
+    assert.equal(result.latestVersion, "0.1.5");
+    assert.equal(JSON.parse(await readFile(path.join(workspaceRoot, "package.json"), "utf8")).dependencies["crewbee-project-context"], "0.1.5");
+    assert.equal(JSON.parse(await readFile(path.join(packageRoot, "package.json"), "utf8")).version, "0.1.4");
+  } finally {
+    if (previousConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previousConfigHome;
+    if (previousCacheHome === undefined) delete process.env.XDG_CACHE_HOME;
+    else process.env.XDG_CACHE_HOME = previousCacheHome;
+    await rm(root, { recursive: true, force: true });
+    await rm(configHome, { recursive: true, force: true });
+    await rm(cacheHome, { recursive: true, force: true });
+  }
+});
+
 test("Project Context release refresh skips pinned versions and test env by default", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-release-pinned-"));
   const configHome = await mkdtemp(path.join(os.tmpdir(), "crewbee-config-"));
