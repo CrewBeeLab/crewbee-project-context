@@ -2,7 +2,8 @@ import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 export const PROJECT_CONTEXT_PACKAGE_NAME = "crewbee-project-context";
-export const PROJECT_CONTEXT_PLUGIN_ENTRY = `${PROJECT_CONTEXT_PACKAGE_NAME}@0.1.2`;
+export const PROJECT_CONTEXT_PLUGIN_VERSION = "0.1.4";
+export const PROJECT_CONTEXT_PLUGIN_ENTRY = `${PROJECT_CONTEXT_PACKAGE_NAME}@${PROJECT_CONTEXT_PLUGIN_VERSION}`;
 
 export function resolveInstalledPackageRoot(installRoot: string): string {
   return path.join(installRoot, "node_modules", PROJECT_CONTEXT_PACKAGE_NAME);
@@ -13,16 +14,17 @@ export function resolveInstalledPluginPath(installRoot: string): string {
 }
 
 export function resolveInstalledPackageRootCandidates(installRoot: string): string[] {
-  const candidates: string[] = [];
+  const candidates: string[] = [path.join(installRoot, "packages", PROJECT_CONTEXT_PLUGIN_ENTRY, "node_modules", PROJECT_CONTEXT_PACKAGE_NAME)];
+  candidates.push(resolveInstalledPackageRoot(installRoot));
   const packageCacheRoot = path.join(installRoot, "packages");
   if (existsSync(packageCacheRoot)) {
     for (const entry of readdirSync(packageCacheRoot, { withFileTypes: true })) {
       if (entry.isDirectory() && entry.name.startsWith(`${PROJECT_CONTEXT_PACKAGE_NAME}@`)) {
-        candidates.push(path.join(packageCacheRoot, entry.name, "node_modules", PROJECT_CONTEXT_PACKAGE_NAME));
+        const candidate = path.join(packageCacheRoot, entry.name, "node_modules", PROJECT_CONTEXT_PACKAGE_NAME);
+        if (!candidates.includes(candidate)) candidates.push(candidate);
       }
     }
   }
-  candidates.push(resolveInstalledPackageRoot(installRoot));
   return candidates;
 }
 

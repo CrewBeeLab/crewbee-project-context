@@ -2,5 +2,5 @@ export { findProjectContextPluginEntries, hasRecommendedPluginOrder, readOpenCod
 export { runInstallDoctor } from "./doctor.js";
 export { installProjectContext } from "./install.js";
 export { resolveOpenCodeConfigPath, resolveOpenCodeConfigRoot, resolveInstallRoot } from "./install-root.js";
-export { createCanonicalPluginEntry, PROJECT_CONTEXT_PACKAGE_NAME, PROJECT_CONTEXT_PLUGIN_ENTRY } from "./plugin-entry.js";
+export { createCanonicalPluginEntry, detectInstalledPackageRoot, PROJECT_CONTEXT_PACKAGE_NAME, PROJECT_CONTEXT_PLUGIN_ENTRY, PROJECT_CONTEXT_PLUGIN_VERSION } from "./plugin-entry.js";
 export type { DoctorOptions, DoctorResult, InstallCommandContext, InstallCommandOptions, InstallResult, InstallSource } from "./types.js";
