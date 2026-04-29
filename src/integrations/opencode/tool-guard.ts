@@ -28,14 +28,14 @@ function isProjectContextTool(tool: string): boolean {
   return PROJECT_CONTEXT_TOOL_NAMES.has(tool);
 }
 
-function readParentID(session: unknown): string | undefined {
+function readNestedParentID(session: unknown): string | undefined {
   if (typeof session !== "object" || session === null || Array.isArray(session)) return undefined;
   const record = session as Record<string, unknown>;
   if (typeof record.parentID === "string") return record.parentID;
   for (const key of ["data", "info", "properties", "session", "message"]) {
     const nested = record[key];
     if (typeof nested === "object" && nested !== null && !Array.isArray(nested)) {
-      const parentID = readParentID(nested);
+      const parentID = readNestedParentID(nested);
       if (parentID !== undefined) return parentID;
     }
   }
@@ -46,7 +46,7 @@ async function isSubsession(client: OpenCodeClientLike | undefined, sessionID: s
   if (!client || !hasSessionMethod(client, "get")) return false;
   const query = projectRoot ? { directory: projectRoot, workspace: projectRoot } : undefined;
   const session = await sessionGet(client, { sessionID, ...(query ? { query } : {}) });
-  return readParentID(session) !== undefined;
+  return readNestedParentID(session) !== undefined;
 }
 
 function findRuntimeUpdateJobID(value: unknown): string | undefined {
@@ -74,7 +74,7 @@ async function parentSessionID(client: OpenCodeClientLike | undefined, sessionID
   if (!client || !hasSessionMethod(client, "get")) return undefined;
   const query = projectRoot ? { directory: projectRoot, workspace: projectRoot } : undefined;
   const session = await sessionGet(client, { sessionID, ...(query ? { query } : {}) });
-  return readParentID(session);
+  return readNestedParentID(session);
 }
 
 async function isPersistedUpdateJobForParent(projectRoot: string | undefined, parentID: string | undefined, jobID: string | undefined): Promise<boolean> {

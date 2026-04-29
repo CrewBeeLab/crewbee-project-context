@@ -7,13 +7,13 @@ interface SessionMethod {
   arity: number;
 }
 
-interface SessionQueryInput {
+interface AdapterSessionQuery {
   directory?: string;
   workspace?: string;
   limit?: number;
 }
 
-interface SessionPromptBodyInput {
+interface AdapterPromptBody {
   agent?: string;
   tools?: Record<string, boolean>;
   noReply?: boolean;
@@ -30,7 +30,7 @@ function sessionMethod(client: OpenCodeClientLike, name: string): SessionMethod 
   };
 }
 
-function legacyQuery(query: SessionQueryInput | undefined): Record<string, unknown> | undefined {
+function legacyQuery(query: AdapterSessionQuery | undefined): Record<string, unknown> | undefined {
   if (!query?.directory && query?.limit === undefined) return undefined;
   return {
     ...(query.directory ? { directory: query.directory } : {}),
@@ -38,7 +38,7 @@ function legacyQuery(query: SessionQueryInput | undefined): Record<string, unkno
   };
 }
 
-function flatQuery(query: SessionQueryInput | undefined): Record<string, unknown> {
+function flatQuery(query: AdapterSessionQuery | undefined): Record<string, unknown> {
   return {
     ...(query?.directory ? { directory: query.directory } : {}),
     ...(query?.workspace ? { workspace: query.workspace } : {}),
@@ -105,7 +105,7 @@ export function hasSessionMethod(client: OpenCodeClientLike, name: string): bool
   return sessionMethod(client, name) !== undefined;
 }
 
-export async function sessionGet(client: OpenCodeClientLike, input: { sessionID: string; query?: SessionQueryInput }): Promise<unknown> {
+export async function sessionGet(client: OpenCodeClientLike, input: { sessionID: string; query?: AdapterSessionQuery }): Promise<unknown> {
   const method = sessionMethod(client, "get");
   if (!method) throw new Error("OpenCode client does not expose session.get.");
   return firstSuccessful("OpenCode session.get", compatibleCalls(method,
@@ -114,7 +114,7 @@ export async function sessionGet(client: OpenCodeClientLike, input: { sessionID:
   ));
 }
 
-export async function sessionMessages(client: OpenCodeClientLike, input: { sessionID: string; query?: SessionQueryInput }): Promise<unknown> {
+export async function sessionMessages(client: OpenCodeClientLike, input: { sessionID: string; query?: AdapterSessionQuery }): Promise<unknown> {
   const method = sessionMethod(client, "messages");
   if (!method) throw new Error("OpenCode client does not expose session.messages.");
   return firstSuccessful("OpenCode session.messages", compatibleCalls(method,
@@ -123,7 +123,7 @@ export async function sessionMessages(client: OpenCodeClientLike, input: { sessi
   ));
 }
 
-export async function sessionStatus(client: OpenCodeClientLike, input: { query?: SessionQueryInput } = {}): Promise<unknown> {
+export async function sessionStatus(client: OpenCodeClientLike, input: { query?: AdapterSessionQuery } = {}): Promise<unknown> {
   const method = sessionMethod(client, "status");
   if (!method) throw new Error("OpenCode client does not expose session.status.");
   return firstSuccessful("OpenCode session.status", compatibleCalls(method,
@@ -132,7 +132,7 @@ export async function sessionStatus(client: OpenCodeClientLike, input: { query?:
   ));
 }
 
-export async function sessionCreate(client: OpenCodeClientLike, input: { parentID: string; title: string; query?: SessionQueryInput }): Promise<unknown> {
+export async function sessionCreate(client: OpenCodeClientLike, input: { parentID: string; title: string; query?: AdapterSessionQuery }): Promise<unknown> {
   const method = sessionMethod(client, "create");
   if (!method) throw new Error("OpenCode client does not expose session.create.");
   return firstSuccessful("OpenCode session.create", compatibleCalls(method,
@@ -141,7 +141,7 @@ export async function sessionCreate(client: OpenCodeClientLike, input: { parentI
   ));
 }
 
-export async function sessionPrompt(client: OpenCodeClientLike, input: { sessionID: string; body: SessionPromptBodyInput; query?: SessionQueryInput }): Promise<unknown> {
+export async function sessionPrompt(client: OpenCodeClientLike, input: { sessionID: string; body: AdapterPromptBody; query?: AdapterSessionQuery }): Promise<unknown> {
   const method = sessionMethod(client, "prompt");
   if (!method) throw new Error("OpenCode client does not expose session.prompt.");
   return firstSuccessfulPrompt("OpenCode session.prompt", compatibleCalls(method,
@@ -150,7 +150,7 @@ export async function sessionPrompt(client: OpenCodeClientLike, input: { session
   ));
 }
 
-export async function sessionPromptAsync(client: OpenCodeClientLike, input: { sessionID: string; body: SessionPromptBodyInput; query?: SessionQueryInput }): Promise<unknown> {
+export async function sessionPromptAsync(client: OpenCodeClientLike, input: { sessionID: string; body: AdapterPromptBody; query?: AdapterSessionQuery }): Promise<unknown> {
   const method = sessionMethod(client, "promptAsync");
   if (!method) throw new Error("OpenCode client does not expose session.promptAsync.");
   return firstSuccessful("OpenCode session.promptAsync", compatibleCalls(method,
@@ -159,7 +159,7 @@ export async function sessionPromptAsync(client: OpenCodeClientLike, input: { se
   ));
 }
 
-export async function sessionAbort(client: OpenCodeClientLike, input: { sessionID: string; query?: SessionQueryInput }): Promise<unknown> {
+export async function sessionAbort(client: OpenCodeClientLike, input: { sessionID: string; query?: AdapterSessionQuery }): Promise<unknown> {
   const method = sessionMethod(client, "abort");
   if (!method) throw new Error("OpenCode client does not expose session.abort.");
   return firstSuccessful("OpenCode session.abort", compatibleCalls(method,
