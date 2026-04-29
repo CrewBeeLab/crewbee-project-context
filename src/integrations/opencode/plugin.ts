@@ -7,6 +7,7 @@ import { createProjectContextToolGuard } from "./tool-guard.js";
 import { createProjectContextToolOutputRedactor } from "./tool-output-redactor.js";
 import { createProjectContextTools } from "./tools.js";
 import type { OpenCodePluginInputLike, OpenCodeV1PluginModuleLike } from "./types.js";
+import { startBackgroundReleaseRefresh } from "../../update/refresh.js";
 
 function projectRoot(input: OpenCodePluginInputLike): string {
   const worktreeRoot = path.parse(input.worktree).root;
@@ -17,6 +18,7 @@ function projectRoot(input: OpenCodePluginInputLike): string {
 
 export async function server(ctx: OpenCodePluginInputLike) {
   const root = projectRoot(ctx);
+  startBackgroundReleaseRefresh(ctx, root);
   const service = new ProjectContextService(root);
   const autoPrepare = createProjectContextSystemTransformHook({ service, client: ctx.client, projectRoot: root });
   const autoUpdate = new AutoUpdateManager({ client: ctx.client, service, projectRoot: root });

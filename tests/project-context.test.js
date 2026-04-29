@@ -10,6 +10,7 @@ import { cleanupOpenCodePackageCaches, detectInstalledPackageRoot, hasRecommende
 import { sessionAbort, sessionCreate, sessionGet, sessionMessages, sessionPrompt, sessionPromptAsync, sessionStatus } from "../dist/src/integrations/opencode/client-adapter.js";
 import { MaintainerSubsessionRunner } from "../dist/src/integrations/opencode/subsession-runner.js";
 import { writeRuntimeLog } from "../dist/src/integrations/opencode/runtime-log.js";
+import { runBackgroundReleaseRefresh, shouldEnableProjectContextReleaseRefresh } from "../dist/src/update/refresh.js";
 
 const service = (root) => new ProjectContextService(root);
 
@@ -1010,6 +1011,83 @@ test("OpenCode dependencies are pinned", async () => {
   assert.equal(pkg.devDependencies?.["@opencode-ai/plugin"], undefined);
   assert.equal(pkg.devDependencies?.["@opencode-ai/sdk"], undefined);
   assert.equal(JSON.stringify(pkg.dependencies).includes("latest"), false);
+});
+
+test("Project Context release refresh updates latest workspace like CrewBee", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-release-"));
+  const configHome = await mkdtemp(path.join(os.tmpdir(), "crewbee-config-"));
+  const cacheHome = await mkdtemp(path.join(os.tmpdir(), "crewbee-cache-"));
+  const previousConfigHome = process.env.XDG_CONFIG_HOME;
+  const previousCacheHome = process.env.XDG_CACHE_HOME;
+  try {
+    process.env.XDG_CONFIG_HOME = configHome;
+    process.env.XDG_CACHE_HOME = cacheHome;
+    const configRoot = path.join(configHome, "opencode");
+    const workspaceRoot = path.join(cacheHome, "opencode", "packages", "crewbee-project-context@latest");
+    await mkdir(path.join(workspaceRoot, "node_modules", "crewbee-project-context"), { recursive: true });
+    await mkdir(configRoot, { recursive: true });
+    await writeFile(path.join(configRoot, "opencode.json"), JSON.stringify({ plugin: ["crewbee-project-context@latest"] }, null, 2), "utf8");
+    await writeFile(path.join(workspaceRoot, "node_modules", "crewbee-project-context", "package.json"), JSON.stringify({ name: "crewbee-project-context", version: "0.1.4" }), "utf8");
+
+    const result = await runBackgroundReleaseRefresh({ client: {}, worktree: root, directory: root }, root, {
+      async fetchJson() {
+        return { "dist-tags": { latest: "0.1.5" } };
+      },
+      async runInstall(targetWorkspaceRoot) {
+        assert.equal(targetWorkspaceRoot, workspaceRoot);
+        await mkdir(path.join(targetWorkspaceRoot, "node_modules", "crewbee-project-context"), { recursive: true });
+        await writeFile(path.join(targetWorkspaceRoot, "node_modules", "crewbee-project-context", "package.json"), JSON.stringify({ name: "crewbee-project-context", version: "0.1.5" }), "utf8");
+        return true;
+      }
+    });
+
+    assert.equal(result.needsRefresh, true);
+    assert.equal(result.latestVersion, "0.1.5");
+    assert.equal(JSON.parse(await readFile(path.join(workspaceRoot, "package.json"), "utf8")).dependencies["crewbee-project-context"], "0.1.5");
+    assert.equal(JSON.parse(await readFile(path.join(workspaceRoot, "node_modules", "crewbee-project-context", "package.json"), "utf8")).version, "0.1.5");
+  } finally {
+    if (previousConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previousConfigHome;
+    if (previousCacheHome === undefined) delete process.env.XDG_CACHE_HOME;
+    else process.env.XDG_CACHE_HOME = previousCacheHome;
+    await rm(root, { recursive: true, force: true });
+    await rm(configHome, { recursive: true, force: true });
+    await rm(cacheHome, { recursive: true, force: true });
+  }
+});
+
+test("Project Context release refresh skips pinned versions and test env by default", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-release-pinned-"));
+  const configHome = await mkdtemp(path.join(os.tmpdir(), "crewbee-config-"));
+  const cacheHome = await mkdtemp(path.join(os.tmpdir(), "crewbee-cache-"));
+  const previousConfigHome = process.env.XDG_CONFIG_HOME;
+  const previousCacheHome = process.env.XDG_CACHE_HOME;
+  try {
+    process.env.XDG_CONFIG_HOME = configHome;
+    process.env.XDG_CACHE_HOME = cacheHome;
+    await mkdir(path.join(root, ".git"), { recursive: true });
+    await mkdir(path.join(configHome, "opencode"), { recursive: true });
+    await writeFile(path.join(configHome, "opencode", "opencode.json"), JSON.stringify({ plugin: ["crewbee-project-context@0.1.5"] }, null, 2), "utf8");
+    assert.equal(shouldEnableProjectContextReleaseRefresh(root), false);
+    const result = await runBackgroundReleaseRefresh({ client: {}, worktree: root, directory: root }, root, {
+      async fetchJson() {
+        throw new Error("should not fetch for pinned versions");
+      },
+      async runInstall() {
+        throw new Error("should not install pinned versions");
+      }
+    });
+    assert.equal(result.needsRefresh, false);
+    assert.equal(result.reason, "pinned-version");
+  } finally {
+    if (previousConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previousConfigHome;
+    if (previousCacheHome === undefined) delete process.env.XDG_CACHE_HOME;
+    else process.env.XDG_CACHE_HOME = previousCacheHome;
+    await rm(root, { recursive: true, force: true });
+    await rm(configHome, { recursive: true, force: true });
+    await rm(cacheHome, { recursive: true, force: true });
+  }
 });
 
 test("maintainer subsession runner completes via prompt_async polling", async () => {

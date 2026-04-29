@@ -4,7 +4,7 @@ import path from "node:path";
 
 export interface ProjectContextRuntimeLogEvent {
   event: string;
-  component: "system-transform" | "tool-guard" | "maintainer-runner" | "auto-update";
+  component: "system-transform" | "tool-guard" | "maintainer-runner" | "auto-update" | "release-refresh";
   sessionID?: string | undefined;
   agent?: string | undefined;
   tool?: string | undefined;
