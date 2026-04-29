@@ -476,6 +476,11 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     await hooks.config(config);
     assert.equal(config.agent["project-context-maintainer"].hidden, true);
     assert.equal(config.agent["project-context-maintainer"].mode, "subagent");
+    assert.equal(config.agent["project-context-maintainer"].permission.read["*"], "deny");
+    assert.equal(config.agent["project-context-maintainer"].permission.read[".crewbee/.prjctxt/**"], "allow");
+    assert.equal(config.agent["project-context-maintainer"].permission.read["**/.crewbee/.prjctxt/**"], "allow");
+    assert.equal(config.agent["project-context-maintainer"].permission.read[".crewbee\\.prjctxt\\**"], "allow");
+    assert.equal(config.agent["project-context-maintainer"].permission.read["**\\.crewbee\\.prjctxt\\**"], "allow");
     assert.equal(config.agent["project-context-maintainer"].permission.read[".crewbee/.prjctxt/cache/update-jobs/**"], "allow");
     assert.match(config.agent["project-context-maintainer"].prompt, /task prompt includes only a Job ID/i);
     assert.match(config.agent["project-context-maintainer"].prompt, /\.crewbee\/\.prjctxt\/cache\/update-jobs\/<jobID>\.json/);
@@ -491,10 +496,12 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     assert.deepEqual(Object.keys(config.agent["project-context-maintainer"].permission.patch), contextWritePermissionKeys);
     assert.deepEqual(Object.keys(config.agent["project-context-maintainer"].permission.apply_patch), contextWritePermissionKeys);
     assert.equal(config.agent["project-context-maintainer"].permission.project_context_search, "deny");
+    assert.equal(config.agent["project-context-maintainer"].permission.delegate_task, "deny");
+    assert.equal(config.agent["project-context-maintainer"].permission.delegate_tesk, "deny");
     assert.equal(config.agent["project-context-maintainer"].permission["session.prompt"], "deny");
     assert.equal(config.agent["project-context-maintainer"].permission.bash["npm run doctor"], "allow");
     assert.deepEqual(Object.keys(config.agent["project-context-maintainer"].permission.bash), ["git status", "git status *", "git diff", "git diff *", "git log", "git log *", "npm run doctor", "npm run doctor *", "*"]);
-    assert.deepEqual(config.agent["project-context-maintainer"].tools, { read: true, glob: true, grep: true, edit: true, write: true, patch: true, apply_patch: true, bash: true, webfetch: false, websearch: false, task: false, project_context_search: false, session: false, "session.create": false, "session.prompt": false, "session.promptAsync": false });
+    assert.deepEqual(config.agent["project-context-maintainer"].tools, { read: true, glob: true, grep: true, edit: true, write: true, patch: true, apply_patch: true, bash: true, webfetch: false, websearch: false, task: false, delegate_task: false, delegate_tesk: false, project_context_search: false, session: false, "session.create": false, "session.prompt": false, "session.promptAsync": false });
     assert.equal(config.agent["project-context-maintainer"].tools.project_context_search, false);
     assert.equal(config.agent["coding-leader"].permission.task["project-context-maintainer"], "deny");
     assert.equal(config.agent.worker.permission.project_context_search, "deny");

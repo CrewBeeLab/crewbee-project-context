@@ -53,7 +53,10 @@ const DEFAULT_POLL_INTERVAL_MS = 500;
 const API_CALL_TIMEOUT_MS = 15_000;
 const UPDATE_SUBTASK_SUBMIT_OBSERVE_MS = 1_000;
 const MAINTAINER_DISABLED_TOOLS = {
-  project_context_search: false
+  project_context_search: false,
+  task: false,
+  delegate_task: false,
+  delegate_tesk: false
 } as const;
 
 function maintainerTimeoutMs(kind: MaintainerJobKind): number {

@@ -10,6 +10,7 @@ const PROJECT_CONTEXT_WRITE_PERMISSION = {
   [DEFAULT_CONTEXT_DIR.replaceAll("/", "\\") + "\\**"]: "allow",
   ["**\\" + DEFAULT_CONTEXT_DIR.replaceAll("/", "\\") + "\\**"]: "allow"
 } as const;
+const PROJECT_CONTEXT_READ_PERMISSION = { ...PROJECT_CONTEXT_WRITE_PERMISSION } as const;
 const MAINTAINER_ALLOWED_TOOLS = {
   read: true,
   glob: true,
@@ -22,6 +23,8 @@ const MAINTAINER_ALLOWED_TOOLS = {
   webfetch: false,
   websearch: false,
   task: false,
+  delegate_task: false,
+  delegate_tesk: false,
   project_context_search: false,
   session: false,
   "session.create": false,
@@ -56,7 +59,7 @@ function createMaintainerAgent(): OpenCodeAgentConfig {
     description: "Internal project context maintainer. Invoked only by the Project Context runtime.",
     prompt: buildMaintainerPrompt(),
     permission: {
-      read: { "*": "allow", "*.env": "deny", "*.env.*": "deny", [`${PRIVATE_RUNTIME_CONTEXT_DIR}/cache/update-jobs/**`]: "allow" },
+      read: { ...PROJECT_CONTEXT_READ_PERMISSION, [`${PRIVATE_RUNTIME_CONTEXT_DIR}/cache/update-jobs/**`]: "allow" },
       glob: "allow",
       grep: "allow",
       edit: { ...PROJECT_CONTEXT_WRITE_PERMISSION },
@@ -67,6 +70,8 @@ function createMaintainerAgent(): OpenCodeAgentConfig {
       webfetch: "deny",
       websearch: "deny",
       task: "deny",
+      delegate_task: "deny",
+      delegate_tesk: "deny",
       project_context_search: "deny",
       session: "deny",
       "session.create": "deny",
