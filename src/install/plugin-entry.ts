@@ -2,8 +2,8 @@ import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 export const PROJECT_CONTEXT_PACKAGE_NAME = "crewbee-project-context";
-export const PROJECT_CONTEXT_PLUGIN_VERSION = "0.1.4";
-export const PROJECT_CONTEXT_PLUGIN_ENTRY = `${PROJECT_CONTEXT_PACKAGE_NAME}@${PROJECT_CONTEXT_PLUGIN_VERSION}`;
+export const PROJECT_CONTEXT_PLUGIN_CHANNEL = "latest";
+export const PROJECT_CONTEXT_PLUGIN_ENTRY = `${PROJECT_CONTEXT_PACKAGE_NAME}@${PROJECT_CONTEXT_PLUGIN_CHANNEL}`;
 
 export function resolveInstalledPackageRoot(installRoot: string): string {
   return path.join(installRoot, "node_modules", PROJECT_CONTEXT_PACKAGE_NAME);
