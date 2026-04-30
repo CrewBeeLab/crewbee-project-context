@@ -23,6 +23,7 @@ interface SessionUpdateState {
   lastAssistantMessageID?: string | undefined;
   lastAssistantMessageAt?: number | undefined;
   assistantSeenAfterLatestUser: boolean;
+  updateEligibleTurnID?: number | undefined;
   materialTurnID?: number | undefined;
   lastUpdatedTurnID?: number | undefined;
   lastMessageSignature?: string | undefined;
@@ -231,6 +232,8 @@ export class AutoUpdateManager {
     state.materialReasons.clear();
     state.toolEvents = [];
     state.materialTurnID = undefined;
+    state.updateEligibleTurnID = undefined;
+    state.pendingAfterFlight = false;
   }
 
   public async recordChatMessage(input: { sessionID?: string }, output: { message?: unknown; parts?: unknown[] }): Promise<void> {
@@ -360,6 +363,13 @@ export class AutoUpdateManager {
         await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "skipped", sessionID, details: { reason: "waiting_for_assistant_final_response", currentTurnID: state.currentTurnID } });
         return;
       }
+      if (state.updateEligibleTurnID !== state.currentTurnID) {
+        state.materialReasons.clear();
+        state.toolEvents = [];
+        await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "skipped", sessionID, details: { reason: "not_in_assistant_idle_window", updateEligibleTurnID: state.updateEligibleTurnID, currentTurnID: state.currentTurnID } });
+        return;
+      }
+      state.updateEligibleTurnID = undefined;
       if (state.materialTurnID !== state.currentTurnID) {
         state.materialReasons.clear();
         state.toolEvents = [];
@@ -424,6 +434,7 @@ export class AutoUpdateManager {
     state.lastAssistantMessageAt = now;
     if (state.lastRealUserMessageAt !== undefined && now >= state.lastRealUserMessageAt) {
       state.assistantSeenAfterLatestUser = true;
+      state.updateEligibleTurnID = state.currentTurnID;
     }
   }
 
