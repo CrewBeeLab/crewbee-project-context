@@ -1,5 +1,5 @@
 export function isRuntimeText(text: string): boolean {
-  return /Project Context (prepared|update) ·/i.test(text)
+  return /Project Context (Prepare Summary|prepared|update) ·/i.test(text)
     || /Project Context (Maintainer|Update)/i.test(text)
     || /Project Context workspace is private/i.test(text)
     || /Unable to update private Project Context scaffold/i.test(text)

@@ -22,7 +22,7 @@
 - `src/capsule/`: low-token Context Capsule / Task Context Brief rendering.
 - `src/maintainer/`: internal Context Maintainer service, search, safe patching, finalize handling.
 - `src/integrations/crewbee/`: compatibility bridge, prompt fragment, tool definitions, handlers, internal-agent metadata.
-- `src/integrations/opencode/`: real OpenCode plugin adapter, hidden maintainer config hook, tools, system transform, task guard, subsession runner.
+- `src/integrations/opencode/`: real OpenCode plugin adapter, hidden maintainer config hook, tools, system transform, task guard, subsession runner, and small shared helpers for OpenCode event/session shapes, auto-update classification rules, prepare visible status, and prepare message filtering.
 - `src/service/`: object-oriented ProjectContextService facade.
 - `src/cli/`: internal doctor/primer diagnostic entrypoint; not a published product CLI.
 

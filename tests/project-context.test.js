@@ -842,7 +842,7 @@ test("OpenCode project context prepare and update can be disabled by project cre
     assert.equal(messagesCalls, 0);
     assert.equal(promptCalls, 0);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await rmForceRetry(root);
   }
 });
 
@@ -992,6 +992,7 @@ test("OpenCode auto-update waits for assistant response in current user turn", a
     await hooks["tool.execute.before"]({ tool: "bash", sessionID: "parent-session", callID: "test", agent: "coding-leader" }, { args: { command: "npm test" } });
     await hooks["tool.execute.after"]({ tool: "bash", sessionID: "parent-session", callID: "test", agent: "coding-leader" }, { result: "tests passed" });
 
+    await hooks.event({ event: { type: "message.updated", properties: { sessionID: "parent-session", info: { role: "assistant" }, parts: [{ type: "text", text: "Project Context Prepare Summary · compact · revision abc123" }] } } });
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
     await new Promise((resolve) => setTimeout(resolve, 100));
     assert.equal(prompts.some((input) => input.body.parts?.[0]?.type === "subtask"), false);
@@ -1125,6 +1126,7 @@ test("OpenCode auto-update failures are best-effort and do not retry without new
     await hooks["tool.execute.after"]({ tool: "apply_patch", sessionID: "parent-session", callID: "patch", agent: "coding-leader" }, { result: "patched src/feature.ts" });
     await hooks["tool.execute.before"]({ tool: "bash", sessionID: "parent-session", callID: "test", agent: "coding-leader" }, { args: { command: "npm test" } });
     await hooks["tool.execute.after"]({ tool: "bash", sessionID: "parent-session", callID: "test", agent: "coding-leader" }, { result: "tests passed" });
+    await hooks.event({ event: { type: "message.updated", properties: { sessionID: "parent-session", info: { role: "assistant" }, parts: parentMessages[1].parts } } });
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
     await waitFor(() => attemptedJobIDs.size === 1, 6000);
     await waitFor(async () => {
@@ -1204,6 +1206,7 @@ test("OpenCode auto-update abandons pending update window when a new user turn s
     await waitFor(() => prompts.some((input) => input.body.parts?.[0]?.type === "subtask"), 6000);
 
     parentMessages.push({ info: { id: "second-user", role: "user" }, parts: [{ type: "text", text: "Now handle the next request." }] });
+    await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, { message: { id: "second-user", sessionID: "parent-session", role: "user" }, parts: [{ type: "text", text: "Now handle the next request." }] });
     await hooks.event({ event: { type: "message.updated", properties: { sessionID: "parent-session", info: { id: "second-user", role: "user" }, parts: [{ type: "text", text: "Now handle the next request." }] } } });
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
     releasePrompt();
@@ -1214,6 +1217,60 @@ test("OpenCode auto-update abandons pending update window when a new user turn s
     assert.equal(prompts.filter((input) => input.body.parts?.[0]?.type === "subtask").length, 1);
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("OpenCode auto-update does not submit subtask when user arrives while update is being prepared", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-update-abort-during-prepare-"));
+  try {
+    const prompts = [];
+    let messageReads = 0;
+    let releasePayloadRead;
+    const payloadReadMayContinue = new Promise((resolve) => {
+      releasePayloadRead = resolve;
+    });
+    const parentMessages = [
+      { info: { id: "first-user", role: "user" }, parts: [{ type: "text", text: "Implement first feature." }] },
+      { info: { id: "first-assistant", role: "assistant" }, parts: [{ type: "text", text: "已实现 first feature。下一步已完成验证。" }] }
+    ];
+    const client = {
+      session: {
+        async get(input) {
+          return { id: input.path.id, directory: root };
+        },
+        async messages() {
+          messageReads += 1;
+          if (messageReads === 2) await payloadReadMayContinue;
+          return parentMessages;
+        },
+        async prompt(input) {
+          prompts.push(input);
+          return {};
+        },
+        async status() {
+          return { "maintainer-session": { type: "idle" } };
+        }
+      }
+    };
+    await service(root).initProjectContext({ projectId: "demo", projectName: "Demo" });
+    await populateTemplateContext(root);
+    const hooks = await publicApi.ProjectContextOpenCodePlugin.server({ client, worktree: root, directory: root });
+
+    await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, { message: { id: "first-user", sessionID: "parent-session", role: "user" }, parts: [{ type: "text", text: "Implement first feature." }] });
+    await hooks["tool.execute.before"]({ tool: "apply_patch", sessionID: "parent-session", callID: "patch", agent: "coding-leader" }, { args: { patchText: "*** Begin Patch\n*** Update File: src/feature.ts\n@@\n-old\n+new\n*** End Patch" } });
+    await hooks["tool.execute.after"]({ tool: "apply_patch", sessionID: "parent-session", callID: "patch", agent: "coding-leader" }, { result: "patched src/feature.ts" });
+    await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, { message: { id: "first-assistant", sessionID: "parent-session", role: "assistant" }, parts: [{ type: "text", text: "已实现 first feature。下一步已完成验证。" }] });
+    await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
+    await waitFor(() => messageReads >= 2, 6000);
+
+    parentMessages.push({ info: { id: "second-user", role: "user" }, parts: [{ type: "text", text: "Now handle the next request." }] });
+    await hooks.event({ event: { type: "message.updated", properties: { sessionID: "parent-session", info: { id: "second-user", role: "user" }, parts: [{ type: "text", text: "Now handle the next request." }] } } });
+    releasePayloadRead();
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    assert.equal(prompts.some((input) => input.body.parts?.[0]?.type === "subtask"), false);
+  } finally {
+    await rmForceRetry(root);
   }
 });
 

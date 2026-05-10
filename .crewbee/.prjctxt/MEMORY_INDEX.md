@@ -77,3 +77,51 @@
   Summary: Automatic prepare remains system-transform-only; automatic update uses OpenCode's official subtask/Task flow to render a clickable maintainer child-session execution card.
   Affects: OpenCode hooks, Desktop UI observability, maintainer child sessions
   References: `.crewbee/.prjctxt/observations/CP-0015.md`
+
+- ID: M-0014
+  Type: decision
+  Summary: Prepare visible status should prefer toast/status APIs; after automatic updates, idle/status and assistant/non-user messages must not flush visible prepare, but the next real user message may surface it and request a system brief.
+  Affects: OpenCode system transform, auto-update hook, Desktop/TUI UX
+  References: `.crewbee/.prjctxt/DECISIONS.md#d-0008`, `.crewbee/.prjctxt/observations/CP-0017.md`
+
+- ID: M-0015
+  Type: rule
+  Summary: OpenCode automatic update is gated by material engineering file changes or context population, and update-job payloads are removed after the maintainer reads them; verification-only and commit-only turns do not trigger updates.
+  Affects: OpenCode auto-update hook, private update-job cache, tests
+  References: `.crewbee/.prjctxt/observations/CP-0019.md`
+
+- ID: M-0016
+  Type: rule
+  Summary: Visible prepare must not require `role: "user"`; OpenCode Desktop may emit user-visible `chat.message` payloads without role metadata, so only explicit assistant/system/tool roles should be blocked.
+  Affects: OpenCode system transform, Desktop/TUI prepare visibility, tests
+  References: `.crewbee/.prjctxt/observations/CP-0021.md`
+
+- ID: M-0017
+  Type: rule
+  Summary: Automatic update requires a current-turn real file-change event or scaffold population; plain messages, assistant summaries, verification-only turns, and commit-only work are insufficient.
+  Affects: OpenCode auto-update hook, maintainer Task flow, tests
+  References: `.crewbee/.prjctxt/DECISIONS.md#d-0009`, `.crewbee/.prjctxt/observations/CP-0023.md`
+
+- ID: M-0018
+  Type: rule
+  Summary: Projects can disable the whole Project Context integration with `.crewbee/crewbee.json` using `"crewbee-project-context": { "enabled": false }`; default behavior remains enabled when config is absent or invalid.
+  Affects: OpenCode system transform hook, OpenCode auto-update hook, project configuration, tests
+  References: `.crewbee/.prjctxt/DECISIONS.md#d-0011`, `.crewbee/.prjctxt/observations/CP-0025.md`
+
+- ID: M-0019
+  Type: discovery
+  Summary: OpenCode integration helper extraction now separates shape readers, auto-update rules, prepare status/message filtering, and automatic-update payload construction while preserving runtime orchestration in the hooks/managers.
+  Affects: OpenCode integration maintainability, auto-update hook, system-transform hook
+  References: `.crewbee/.prjctxt/observations/CP-0028.md`, `.crewbee/.prjctxt/observations/CP-0029.md`
+
+- ID: M-0020
+  Type: rule
+  Summary: Automatic update eligibility is turn-scoped; a new user turn abandons old material/pending update state so prior-turn updates are not backfilled after the next user message.
+  Affects: OpenCode auto-update hook, maintainer Task flow, tests
+  References: `.crewbee/.prjctxt/observations/CP-0032.md`
+
+- ID: M-0021
+  Type: rule
+  Summary: In-flight automatic update preparation is cancellation-version scoped; a new real user message during preparation must prevent stale payload write, maintainer subtask submission, and visible-prepare marking.
+  Affects: OpenCode auto-update hook, maintainer Task flow, race tests
+  References: `.crewbee/.prjctxt/observations/CP-0034.md`

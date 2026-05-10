@@ -2,22 +2,29 @@ project_id: crewbee-project-context
 run_status: running
 active_cycle: C2
 active_step_id: S11
-last_checkpoint: CP-0015
+last_checkpoint: CP-0034
 blockers: []
 next_actions:
   - action: Run an end-to-end OpenCode Desktop startup smoke test with plugin config [crewbee, crewbee-project-context].
     owner: active-agent
     source: updateContext
-  - action: Validate prepare uses system-transform context and a Desktop-visible no-reply ignored summary that does not enter later model history.
+  - action: Validate prepare uses system-transform context and a Desktop/TUI toast/status summary, including missing-role user-visible messages, with ignored no-reply prompt only as fallback, and does not enter later model history.
     owner: active-agent
     source: updateContext
-  - action: Validate project_context_update appears as a clickable Task-style execution card, opens the Maintainer child session, and can read the private update job payload.
+  - action: Validate project_context_update appears as a clickable Task-style execution card, opens the Maintainer child session, deletes the private update-job payload after maintainer read, does not flush visible prepare on idle/status or assistant/system/tool messages, and surfaces visible prepare plus system brief on the next real user-visible message even if role metadata is absent.
     owner: active-agent
     source: updateContext
-  - action: Resume v0.1.0 GitHub release after committing the Desktop update observability changes; gh CLI is unavailable in this environment.
+  - action: Clean up any historical leftover cache/update-jobs payload files created before the maintainer-read cleanup fix.
+    owner: active-agent
+    source: updateContext
+  - action: If the automatic-update race fix is released, include the new cancellation-version regression in the release verification set.
+    owner: active-agent
+    source: updateContext
+  - action: Use the runtime implementation baseline document before making any behavior-preserving automatic-update latency optimizations.
     owner: active-agent
     source: updateContext
 sync:
   plan_state_consistent: true
   handoff_updated: true
   memory_index_updated: true
+  latest_runtime_baseline_committed: true

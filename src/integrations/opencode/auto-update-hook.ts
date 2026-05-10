@@ -18,6 +18,7 @@ interface SessionUpdateState {
   inFlight: boolean;
   drainInFlight: boolean;
   pendingAfterFlight: boolean;
+  updateCancellationVersion: number;
   lastRealUserMessageID?: string | undefined;
   lastRealUserMessageAt?: number | undefined;
   lastAssistantMessageID?: string | undefined;
@@ -72,6 +73,8 @@ function collectText(value: unknown, output: string[]): void {
   }
   if (typeof value !== "object" || value === null) return;
   const record = value as Record<string, unknown>;
+  const metadata = record.metadata;
+  if (typeof metadata === "object" && metadata !== null && !Array.isArray(metadata) && (metadata as Record<string, unknown>).kind === "project_context_prepare") return;
   for (const key of ["text", "content", "output", "prompt", "description"]) {
     if (typeof record[key] === "string") output.push(record[key]);
   }
@@ -250,6 +253,7 @@ export class AutoUpdateManager {
       else return;
     }
     const state = this.state(sessionID);
+    this.cancelInFlightUpdateOnUserSignal(state, role, text);
     const fingerprint = messageFingerprint(output);
     if (state.seenMessageFingerprints.has(fingerprint)) return;
     state.seenMessageFingerprints.add(fingerprint);
@@ -285,6 +289,7 @@ export class AutoUpdateManager {
       state.seenMessageFingerprints.add(fingerprint);
       const role = readRole(input.event);
       const text = readEventText(input.event);
+      this.cancelInFlightUpdateOnUserSignal(state, role, text);
       this.recordTurnMessage(state, role, text, fingerprint, true);
       for (const reason of textMaterialReasons(role, text)) {
         state.materialReasons.add(reason);
@@ -394,9 +399,11 @@ export class AutoUpdateManager {
       this.updateTerminalSessions.add(sessionID);
       const reasons = [...state.materialReasons];
       const toolEvents = [...state.toolEvents];
+      const updateCancellationVersion = state.updateCancellationVersion;
       state.materialReasons.clear();
       state.toolEvents = [];
-      void this.runUpdate(sessionID, reasons, toolEvents).finally(() => {
+      const updateTurnID = state.currentTurnID;
+      void this.runUpdate(sessionID, updateTurnID, updateCancellationVersion, reasons, toolEvents).finally(() => {
         state.inFlight = false;
         state.pendingAfterFlight = false;
         state.materialReasons.clear();
@@ -414,7 +421,7 @@ export class AutoUpdateManager {
   private state(sessionID: string): SessionUpdateState {
     const existing = this.states.get(sessionID);
     if (existing) return existing;
-    const created: SessionUpdateState = { currentTurnID: 0, inFlight: false, drainInFlight: false, pendingAfterFlight: false, assistantSeenAfterLatestUser: false, seenMessageFingerprints: new Set<string>(), materialReasons: new Set<string>(), toolEvents: [] };
+    const created: SessionUpdateState = { currentTurnID: 0, inFlight: false, drainInFlight: false, pendingAfterFlight: false, updateCancellationVersion: 0, assistantSeenAfterLatestUser: false, seenMessageFingerprints: new Set<string>(), materialReasons: new Set<string>(), toolEvents: [] };
     this.states.set(sessionID, created);
     return created;
   }
@@ -436,6 +443,10 @@ export class AutoUpdateManager {
       state.assistantSeenAfterLatestUser = true;
       state.updateEligibleTurnID = state.currentTurnID;
     }
+  }
+
+  private cancelInFlightUpdateOnUserSignal(state: SessionUpdateState, role: string | undefined, text: string): void {
+    if (state.inFlight && isUserText(role, text)) state.updateCancellationVersion += 1;
   }
 
   private clearUpdateTerminalSession(sessionID: string): void {
@@ -558,21 +569,39 @@ export class AutoUpdateManager {
     }
   }
 
-  private async runUpdate(sessionID: string, reasons: string[], toolEvents: RecordedToolEvent[]): Promise<void> {
+  private isUpdateTurnCurrent(sessionID: string, turnID: number, cancellationVersion: number): boolean {
+    const state = this.state(sessionID);
+    return state.currentTurnID === turnID && state.updateCancellationVersion === cancellationVersion;
+  }
+
+  private async runUpdate(sessionID: string, turnID: number, cancellationVersion: number, reasons: string[], toolEvents: RecordedToolEvent[]): Promise<void> {
     await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "start", sessionID, details: { reasons: reasons.join(",") } });
     let registeredJob: { jobID: string; payloadPath: string } | undefined;
     try {
+      if (!this.isUpdateTurnCurrent(sessionID, turnID, cancellationVersion)) {
+        await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "skipped", sessionID, details: { reason: "update_abandoned_new_user_turn", updateTurnID: turnID, currentTurnID: this.state(sessionID).currentTurnID } });
+        return;
+      }
       if (!hasSessionMethod(this.input.client, "prompt")) {
         await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "failed", sessionID, error: "OpenCode client does not expose session.prompt for parent-session update subtask card." });
         return;
       }
       const payload = await this.buildUpdateJobPayload(sessionID, reasons, toolEvents);
+      if (!this.isUpdateTurnCurrent(sessionID, turnID, cancellationVersion)) {
+        await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "skipped", sessionID, details: { reason: "update_abandoned_new_user_turn", updateTurnID: turnID, currentTurnID: this.state(sessionID).currentTurnID } });
+        return;
+      }
       const payloadPath = updateJobPath(this.input.projectRoot, payload.jobID);
       await mkdir(path.dirname(payloadPath), { recursive: true });
       await writeFile(payloadPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
       this.trackUpdatePayload({ sessionID, jobID: payload.jobID, payloadPath });
       registeredJob = { jobID: payload.jobID, payloadPath };
       await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "payload-written", sessionID, details: { jobID: payload.jobID } });
+      if (!this.isUpdateTurnCurrent(sessionID, turnID, cancellationVersion)) {
+        await this.cleanupParentUpdatePayload({ parentSessionID: sessionID, jobID: payload.jobID, payloadPath, reason: "update_abandoned_new_user_turn" });
+        await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "skipped", sessionID, details: { reason: "update_abandoned_new_user_turn", updateTurnID: turnID, currentTurnID: this.state(sessionID).currentTurnID } });
+        return;
+      }
       const runner = new MaintainerSubsessionRunner(this.input.client);
       const result = await runner.run({
         kind: "update",
