@@ -1,4 +1,4 @@
-import { hasSessionMethod, sessionAbort, sessionCreate, sessionMessages, sessionPrompt, sessionPromptAsync, sessionStatus } from "./client-adapter.js";
+import { hasSessionMethod, sessionAbort, sessionCreate, sessionMessages, sessionPromptAsync, sessionStatus } from "./client-adapter.js";
 import { PROJECT_CONTEXT_MAINTAINER_AGENT_ID } from "./maintainer-prompt.js";
 import type { OpenCodeClientLike } from "./types.js";
 import { writeRuntimeLog } from "./runtime-log.js";
@@ -51,7 +51,6 @@ const DEFAULT_JOB_TIMEOUT_MS: Record<MaintainerJobKind, number> = {
 };
 const DEFAULT_POLL_INTERVAL_MS = 500;
 const API_CALL_TIMEOUT_MS = 15_000;
-const UPDATE_SUBTASK_SUBMIT_OBSERVE_MS = 1_000;
 const MAINTAINER_DISABLED_TOOLS = {
   project_context_search: false,
   task: false,
@@ -78,8 +77,6 @@ function aborted(signal: AbortSignal | undefined): boolean {
   return signal?.aborted === true;
 }
 
-type ObservedPromptSubmit = "accepted" | "pending";
-
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -87,20 +84,6 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: str
       promise,
       new Promise<T>((_, reject) => {
         timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
-      })
-    ]);
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-  }
-}
-
-async function observePromptSubmit(input: { promise: Promise<unknown>; timeoutMs: number }): Promise<ObservedPromptSubmit> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      input.promise.then(() => "accepted" as const),
-      new Promise<"pending">((resolve) => {
-        timer = setTimeout(() => resolve("pending"), input.timeoutMs);
       })
     ]);
   } finally {
@@ -267,24 +250,6 @@ export class MaintainerSubsessionRunner {
     try {
       await writeRunLog(job.projectRoot, { event: "start", runId: id, jobKind: job.kind, callerAgent: job.callerAgent, sessionID: job.callerSessionID });
       if (aborted(options.abort)) return { ok: false, output: "", error: "Maintainer subsession was aborted before start." };
-
-      if (job.kind === "update" && hasSessionMethod(this.client, "prompt")) {
-        const promptPromise = sessionPrompt(this.client, {
-          sessionID: job.callerSessionID,
-          body: {
-            parts: [{ type: "subtask" as const, prompt: renderJob(job), description: job.title, agent: PROJECT_CONTEXT_MAINTAINER_AGENT_ID }]
-          },
-          query
-        });
-        const observed = await observePromptSubmit({ promise: promptPromise, timeoutMs: Math.min(UPDATE_SUBTASK_SUBMIT_OBSERVE_MS, timeoutMs) });
-        if (observed === "pending") {
-          promptPromise.catch((error: unknown) => {
-            void writeRunLog(job.projectRoot, { event: "subtask-submit-failed", runId: id, jobKind: job.kind, callerAgent: job.callerAgent, sessionID: job.callerSessionID, elapsedMs: Date.now() - startedAt, error: error instanceof Error ? error.message : String(error) });
-          });
-        }
-        await writeRunLog(job.projectRoot, { event: observed === "accepted" ? "subtask-submitted" : "subtask-submit-pending", runId: id, jobKind: job.kind, callerAgent: job.callerAgent, sessionID: job.callerSessionID, elapsedMs: Date.now() - startedAt });
-        return { ok: true, output: "Project Context update subtask submitted." };
-      }
 
       const created = await withTimeout(sessionCreate(this.client, { parentID: job.callerSessionID, title: job.title, query }), Math.min(API_CALL_TIMEOUT_MS, timeoutMs), "OpenCode maintainer subsession create");
       sessionID = readString(created, "id");

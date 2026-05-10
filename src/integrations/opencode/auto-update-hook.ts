@@ -582,8 +582,8 @@ export class AutoUpdateManager {
         await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "skipped", sessionID, details: { reason: "update_abandoned_new_user_turn", updateTurnID: turnID, currentTurnID: this.state(sessionID).currentTurnID } });
         return;
       }
-      if (!hasSessionMethod(this.input.client, "prompt")) {
-        await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "failed", sessionID, error: "OpenCode client does not expose session.prompt for parent-session update subtask card." });
+      if (!hasSessionMethod(this.input.client, "create") || !hasSessionMethod(this.input.client, "promptAsync")) {
+        await writeRuntimeLog(this.input.projectRoot, { component: "auto-update", event: "failed", sessionID, error: "OpenCode client does not expose session.create and session.promptAsync for isolated Project Context update subsession." });
         return;
       }
       const payload = await this.buildUpdateJobPayload(sessionID, reasons, toolEvents);

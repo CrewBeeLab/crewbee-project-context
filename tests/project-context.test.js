@@ -414,7 +414,7 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
           if (/Project Context Maintainer job: update/i.test(text)) {
             assert.equal(input.body.agent, "project-context-maintainer");
             assert.doesNotMatch(text, /latest user request|assistant final|git diff|\.crewbeectxt|HANDOFF\.md/i);
-            const jobID = text.match(/"jobID":\s*"(pcu_[a-z0-9_]+)"/i)?.[1];
+            const jobID = text.match(/Job ID:\s*(pcu_[a-z0-9_]+)/i)?.[1] ?? text.match(/"jobID":\s*"(pcu_[a-z0-9_]+)"/i)?.[1];
             assert.ok(jobID);
             const payloadPath = path.join(root, ".crewbee", ".prjctxt", "cache", "update-jobs", `${jobID}.json`);
             const payload = JSON.parse(await readFile(payloadPath, "utf8"));
@@ -613,32 +613,33 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     await hooks["tool.execute.after"]({ tool: "bash", sessionID: "parent-session", callID: "test", agent: "coding-leader" }, { result: "tests passed" });
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
     await waitFor(() => updatePayloads.length === 1);
-    assert.equal(promptAsyncCalls, 1);
-    assert.equal(promptCalls, 5);
-    assert.equal(createCalls, 1);
-    const updateInput = promptInputs.find((input) => input.path.id === "parent-session" && input.body.parts?.[0]?.type === "subtask" && /Project Context Maintainer job: update/i.test(input.body.parts[0].prompt ?? ""));
-    assert.ok(updateInput);
-    assert.equal(updateInput.body.noReply, undefined);
-    assert.equal(updateInput.body.parts[0].agent, "project-context-maintainer");
-    assert.equal(updateInput.body.parts[0].command, undefined);
-    assert.match(updateInput.body.parts[0].prompt, /Project Context Maintainer job: update/);
+    assert.equal(promptAsyncCalls, 2);
+    assert.equal(promptCalls, 4);
+    assert.equal(createCalls, 2);
+    assert.equal(promptInputs.some((input) => input.path.id === "parent-session" && input.body.parts?.[0]?.type === "subtask" && /Project Context Maintainer job: update/i.test(input.body.parts[0].prompt ?? "")), false);
+    const updatePrompt = promptAsyncInputs.find((input) => /Project Context Maintainer job: update/i.test(input.body.parts?.[0]?.text ?? ""));
+    assert.ok(updatePrompt);
+    assert.notEqual(updatePrompt.path.id, "parent-session");
+    assert.equal(updatePrompt.body.agent, "project-context-maintainer");
+    const updateSubtaskPart = { type: "subtask", prompt: updatePrompt.body.parts[0].text, description: "Project Context Update", agent: "project-context-maintainer" };
+    assert.match(updateSubtaskPart.prompt, /Project Context Maintainer job: update/);
     assert.equal(promptInputs.some((input) => input.body.parts?.[0]?.text?.includes("Project Context update ·")), false);
-    const transformedUpdate = { messages: [{ info: { role: "assistant" }, parts: [updateInput.body.parts[0], { type: "text", text: "normal assistant text" }] }] };
+    const transformedUpdate = { messages: [{ info: { role: "assistant" }, parts: [updateSubtaskPart, { type: "text", text: "normal assistant text" }] }] };
     await hooks["experimental.chat.messages.transform"]({}, transformedUpdate);
     assert.equal(transformedUpdate.messages.length, 1);
     assert.equal(transformedUpdate.messages[0].parts.length, 1);
     assert.equal(transformedUpdate.messages[0].parts[0].text, "normal assistant text");
-    const transformedMixedMaintainerTextAndSubtask = { messages: [{ info: { role: "user" }, parts: [{ type: "text", text: "Please inspect Project Context Maintainer job: update as plain text." }] }, { info: { role: "assistant" }, parts: [updateInput.body.parts[0], { type: "text", text: "normal assistant text" }] }] };
+    const transformedMixedMaintainerTextAndSubtask = { messages: [{ info: { role: "user" }, parts: [{ type: "text", text: "Please inspect Project Context Maintainer job: update as plain text." }] }, { info: { role: "assistant" }, parts: [updateSubtaskPart, { type: "text", text: "normal assistant text" }] }] };
     await hooks["experimental.chat.messages.transform"]({}, transformedMixedMaintainerTextAndSubtask);
     assert.equal(transformedMixedMaintainerTextAndSubtask.messages.length, 2);
     assert.match(transformedMixedMaintainerTextAndSubtask.messages[0].parts[0].text, /Project Context Maintainer job: update/);
     assert.equal(transformedMixedMaintainerTextAndSubtask.messages[1].parts.length, 1);
     assert.equal(transformedMixedMaintainerTextAndSubtask.messages[1].parts[0].text, "normal assistant text");
-    const transformedMaintainerPrompt = { messages: [{ info: { role: "user" }, parts: [{ type: "text", text: updateInput.body.parts[0].prompt }] }] };
+    const transformedMaintainerPrompt = { messages: [{ info: { role: "user" }, parts: [{ type: "text", text: updateSubtaskPart.prompt }] }] };
     await hooks["experimental.chat.messages.transform"]({}, transformedMaintainerPrompt);
     assert.equal(transformedMaintainerPrompt.messages.length, 1);
     assert.match(transformedMaintainerPrompt.messages[0].parts[0].text, /Project Context Maintainer job: update/);
-    const transformedMaintainerPromptByAgent = { messages: [{ info: { role: "user" }, parts: [{ type: "text", text: updateInput.body.parts[0].prompt }] }] };
+    const transformedMaintainerPromptByAgent = { messages: [{ info: { role: "user" }, parts: [{ type: "text", text: updateSubtaskPart.prompt }] }] };
     await hooks["experimental.chat.messages.transform"]({ agent: "project-context-maintainer" }, transformedMaintainerPromptByAgent);
     assert.equal(transformedMaintainerPromptByAgent.messages.length, 1);
     const transformedUpdateResult = { messages: [{ info: { role: "assistant" }, parts: [{ type: "text", text: "Update job completed with warnings.\n\n- Files changed: none.\n- Decisions/state updated: none.\n- Verification recorded: none.\n- Blockers/warnings: write/edit capability was unavailable." }] }] };
@@ -649,7 +650,7 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     assert.ok(updatePayloads[0].payload.trigger.reasons.includes("files_changed"));
     assert.ok(updatePayloads[0].payload.engineeringChanges.verification.some((event) => event.resultSummary.includes("tests passed")));
     const taskResultOutput = { result: `<task_result>Files changed:\n- .crewbee/.prjctxt/HANDOFF.md\nVerification recorded: npm test</task_result>` };
-    await hooks["tool.execute.after"]({ tool: "task", sessionID: "parent-session", callID: "update-task", agent: "coding-leader", args: updateInput.body.parts[0] }, taskResultOutput);
+    await hooks["tool.execute.after"]({ tool: "task", sessionID: "parent-session", callID: "update-task", agent: "coding-leader", args: updateSubtaskPart }, taskResultOutput);
     assert.match(taskResultOutput.result, new RegExp(`PROJECT_CONTEXT_UPDATE_DONE job=${updatePayloads[0].payload.jobID} status=ok`));
     assert.doesNotMatch(taskResultOutput.result, /Files changed|HANDOFF\.md|Verification recorded/);
     const transformedSentinelResult = { messages: [{ info: { role: "assistant" }, parts: [{ type: "text", text: `task_id: t for resuming to continue this task\n<task_result>\nPROJECT_CONTEXT_UPDATE_DONE job=${updatePayloads[0].payload.jobID} status=ok\n</task_result>` }] }] };
@@ -674,10 +675,8 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
     assert.equal(transformedNonSubtaskPromptLikePart.messages.length, 1);
     assert.equal(transformedNonSubtaskPromptLikePart.messages[0].parts.length, 1);
     assert.match(transformedNonSubtaskPromptLikePart.messages[0].parts[0].text, /must remain visible/);
-    await hooks["tool.execute.before"]({ tool: "read", sessionID: "runtime-update-child", callID: "payload-read-active", agent: "project-context-maintainer" }, { args: { filePath: updatePayloads[0].path } });
-    await hooks["tool.execute.after"]({ tool: "read", sessionID: "runtime-update-child", callID: "payload-read-active", agent: "project-context-maintainer", args: { filePath: updatePayloads[0].path } }, { result: "payload read" });
     const transformedMaintainerRead = { messages: [{ info: { role: "tool" }, parts: [{ type: "text", text: `Read payload ${updatePayloads[0].payload.jobID}\nProject Context Maintainer job: update` }] }] };
-    await hooks["experimental.chat.messages.transform"]({ sessionID: "runtime-update-child" }, transformedMaintainerRead);
+    await hooks["experimental.chat.messages.transform"]({ sessionID: updatePrompt.path.id }, transformedMaintainerRead);
     assert.equal(transformedMaintainerRead.messages.length, 1);
     assert.match(transformedMaintainerRead.messages[0].parts[0].text, /Read payload/);
     await waitFor(async () => {
@@ -689,7 +688,7 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
       }
     });
     const postCleanupTaskResultOutput = { result: `<task_result>Update job completed.\nFiles changed:\n- .crewbee/.prjctxt/STATE.yaml\nVerification recorded: npm run doctor</task_result>` };
-    await hooks["tool.execute.after"]({ tool: "task", sessionID: "parent-session", callID: "update-task-post-cleanup", agent: "coding-leader", args: updateInput.body.parts[0] }, postCleanupTaskResultOutput);
+    await hooks["tool.execute.after"]({ tool: "task", sessionID: "parent-session", callID: "update-task-post-cleanup", agent: "coding-leader", args: updateSubtaskPart }, postCleanupTaskResultOutput);
     assert.match(postCleanupTaskResultOutput.result, new RegExp(`PROJECT_CONTEXT_UPDATE_DONE job=${updatePayloads[0].payload.jobID} status=ok`));
     assert.doesNotMatch(postCleanupTaskResultOutput.result, /Files changed|STATE\.yaml|Verification recorded/);
     const promptCallsAfterUpdateCleanup = promptCalls;
@@ -718,7 +717,7 @@ test("OpenCode plugin auto-prepares context, exposes only search, and auto-updat
 
     parentMessages = [
       ...parentMessages,
-      { info: { role: "assistant" }, parts: [{ type: "text", text: updateInput.body.parts[0].prompt }] }
+      { info: { role: "assistant" }, parts: [{ type: "text", text: updateSubtaskPart.prompt }] }
     ];
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -970,8 +969,15 @@ test("OpenCode auto-update waits for assistant response in current user turn", a
         async get(input) {
           return { id: input.path.id, directory: root };
         },
+        async create() {
+          return { id: "maintainer-session" };
+        },
         async messages() {
           return parentMessages;
+        },
+        async promptAsync(input) {
+          prompts.push(input);
+          return {};
         },
         async prompt(input) {
           prompts.push(input);
@@ -995,12 +1001,12 @@ test("OpenCode auto-update waits for assistant response in current user turn", a
     await hooks.event({ event: { type: "message.updated", properties: { sessionID: "parent-session", info: { role: "assistant" }, parts: [{ type: "text", text: "Project Context Prepare Summary · compact · revision abc123" }] } } });
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
     await new Promise((resolve) => setTimeout(resolve, 100));
-    assert.equal(prompts.some((input) => input.body.parts?.[0]?.type === "subtask"), false);
+    assert.equal(prompts.some((input) => /Project Context Maintainer job: update/i.test(input.body.parts?.[0]?.text ?? input.body.parts?.[0]?.prompt ?? "")), false);
 
     parentMessages.push({ info: { role: "assistant" }, parts: [{ type: "text", text: "已实现 turn-bound update。下一步已完成验证。" }] });
     await hooks.event({ event: { type: "message.updated", properties: { sessionID: "parent-session", info: { role: "assistant" }, parts: [{ type: "text", text: "已实现 turn-bound update。下一步已完成验证。" }] } } });
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
-    await waitFor(() => prompts.some((input) => input.body.parts?.[0]?.type === "subtask"), 6000);
+    await waitFor(() => prompts.some((input) => /Project Context Maintainer job: update/i.test(input.body.parts?.[0]?.text ?? input.body.parts?.[0]?.prompt ?? "")), 6000);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -1098,19 +1104,22 @@ test("OpenCode auto-update failures are best-effort and do not retry without new
         async get(input) {
           return { id: input.path.id };
         },
+        async create() {
+          return { id: "maintainer-session" };
+        },
         async messages() {
           return parentMessages;
         },
-        async prompt(input) {
+        async promptAsync(input) {
           const part = (input.body ?? input).parts?.[0];
-          const jobID = part?.prompt?.match(/Job ID:\s*(pcu_[a-z0-9_]+)/i)?.[1];
+          const jobID = part?.text?.match(/Job ID:\s*(pcu_[a-z0-9_]+)/i)?.[1] ?? part?.prompt?.match(/Job ID:\s*(pcu_[a-z0-9_]+)/i)?.[1];
           if (jobID) {
             attemptedJobIDs.add(jobID);
             attemptedPayloadPaths.push(path.join(root, ".crewbee", ".prjctxt", "cache", "update-jobs", `${jobID}.json`));
             parentMessages.push({ info: { role: "assistant" }, parts: [{ type: "text", text: "已实现 follow-up。下一步继续验证。" }] });
             await hooks.event({ event: { type: "message.updated", properties: { sessionID: "parent-session", info: { role: "assistant" }, parts: [{ type: "text", text: "已实现 follow-up。下一步继续验证。" }] } } });
           }
-          throw new Error("simulated update subtask failure");
+          throw new Error("simulated update subsession failure");
         },
         async status() {
           return { "maintainer-session": { type: "busy" } };
@@ -1180,13 +1189,19 @@ test("OpenCode auto-update abandons pending update window when a new user turn s
         async get(input) {
           return { id: input.path.id, directory: root };
         },
+        async create() {
+          return { id: "maintainer-session" };
+        },
         async messages() {
           return parentMessages;
         },
+        async promptAsync(input) {
+          prompts.push(input);
+          await promptFinished;
+          return {};
+        },
         async prompt(input) {
           prompts.push(input);
-          if (input.body.parts?.[0]?.type !== "subtask") return {};
-          await promptFinished;
           return {};
         },
         async status() {
@@ -1203,7 +1218,7 @@ test("OpenCode auto-update abandons pending update window when a new user turn s
     await hooks["tool.execute.after"]({ tool: "apply_patch", sessionID: "parent-session", callID: "patch", agent: "coding-leader" }, { result: "patched src/feature.ts" });
     await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, { message: { id: "first-assistant", sessionID: "parent-session", role: "assistant" }, parts: [{ type: "text", text: "已实现 first feature。下一步已完成验证。" }] });
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
-    await waitFor(() => prompts.some((input) => input.body.parts?.[0]?.type === "subtask"), 6000);
+    await waitFor(() => prompts.some((input) => /Project Context Maintainer job: update/i.test(input.body.parts?.[0]?.text ?? input.body.parts?.[0]?.prompt ?? "")), 6000);
 
     parentMessages.push({ info: { id: "second-user", role: "user" }, parts: [{ type: "text", text: "Now handle the next request." }] });
     await hooks["chat.message"]({ sessionID: "parent-session", agent: "coding-leader" }, { message: { id: "second-user", sessionID: "parent-session", role: "user" }, parts: [{ type: "text", text: "Now handle the next request." }] });
@@ -1214,7 +1229,7 @@ test("OpenCode auto-update abandons pending update window when a new user turn s
     await hooks.event({ event: { type: "session.idle", properties: { sessionID: "parent-session" } } });
     await new Promise((resolve) => setTimeout(resolve, 150));
 
-    assert.equal(prompts.filter((input) => input.body.parts?.[0]?.type === "subtask").length, 1);
+    assert.equal(prompts.filter((input) => /Project Context Maintainer job: update/i.test(input.body.parts?.[0]?.text ?? input.body.parts?.[0]?.prompt ?? "")).length, 1);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -1238,10 +1253,17 @@ test("OpenCode auto-update does not submit subtask when user arrives while updat
         async get(input) {
           return { id: input.path.id, directory: root };
         },
+        async create() {
+          return { id: "maintainer-session" };
+        },
         async messages() {
           messageReads += 1;
           if (messageReads === 2) await payloadReadMayContinue;
           return parentMessages;
+        },
+        async promptAsync(input) {
+          prompts.push(input);
+          return {};
         },
         async prompt(input) {
           prompts.push(input);
@@ -1268,7 +1290,7 @@ test("OpenCode auto-update does not submit subtask when user arrives while updat
     releasePayloadRead();
     await new Promise((resolve) => setTimeout(resolve, 250));
 
-    assert.equal(prompts.some((input) => input.body.parts?.[0]?.type === "subtask"), false);
+    assert.equal(prompts.some((input) => /Project Context Maintainer job: update/i.test(input.body.parts?.[0]?.text ?? input.body.parts?.[0]?.prompt ?? "")), false);
   } finally {
     await rmForceRetry(root);
   }
@@ -1392,10 +1414,12 @@ test("Project Context release refresh updates latest workspace like CrewBee", as
     process.env.XDG_CACHE_HOME = cacheHome;
     const configRoot = path.join(configHome, "opencode");
     const workspaceRoot = path.join(cacheHome, "opencode", "packages", "crewbee-project-context@latest");
-    await mkdir(path.join(workspaceRoot, "node_modules", "crewbee-project-context"), { recursive: true });
+    const packageRoot = path.join(workspaceRoot, "node_modules", "crewbee-project-context");
+    await mkdir(packageRoot, { recursive: true });
     await mkdir(configRoot, { recursive: true });
     await writeFile(path.join(configRoot, "opencode.json"), JSON.stringify({ plugin: ["crewbee-project-context@latest"] }, null, 2), "utf8");
-    await writeFile(path.join(workspaceRoot, "node_modules", "crewbee-project-context", "package.json"), JSON.stringify({ name: "crewbee-project-context", version: "0.1.4" }), "utf8");
+    await writeFile(path.join(packageRoot, "package.json"), JSON.stringify({ name: "crewbee-project-context", version: "0.1.4" }), "utf8");
+    await writeFile(path.join(workspaceRoot, "package-lock.json"), JSON.stringify({ lockfileVersion: 3 }), "utf8");
 
     const result = await runBackgroundReleaseRefresh({ client: {}, worktree: root, directory: root }, root, {
       async fetchJson() {
@@ -1403,6 +1427,8 @@ test("Project Context release refresh updates latest workspace like CrewBee", as
       },
       async runInstall(targetWorkspaceRoot) {
         assert.equal(targetWorkspaceRoot, workspaceRoot);
+        await assert.rejects(readFile(path.join(packageRoot, "package.json"), "utf8"), { code: "ENOENT" });
+        await assert.rejects(readFile(path.join(workspaceRoot, "package-lock.json"), "utf8"), { code: "ENOENT" });
         await mkdir(path.join(targetWorkspaceRoot, "node_modules", "crewbee-project-context"), { recursive: true });
         await writeFile(path.join(targetWorkspaceRoot, "node_modules", "crewbee-project-context", "package.json"), JSON.stringify({ name: "crewbee-project-context", version: "0.1.5" }), "utf8");
         return true;
@@ -1424,7 +1450,7 @@ test("Project Context release refresh updates latest workspace like CrewBee", as
   }
 });
 
-test("Project Context release refresh keeps existing package when install fails", async () => {
+test("Project Context release refresh invalidates stale package before install like CrewBee", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-release-fail-"));
   const configHome = await mkdtemp(path.join(os.tmpdir(), "crewbee-config-"));
   const cacheHome = await mkdtemp(path.join(os.tmpdir(), "crewbee-cache-"));
@@ -1440,6 +1466,7 @@ test("Project Context release refresh keeps existing package when install fails"
     await mkdir(configRoot, { recursive: true });
     await writeFile(path.join(configRoot, "opencode.json"), JSON.stringify({ plugin: ["crewbee-project-context@latest"] }, null, 2), "utf8");
     await writeFile(path.join(packageRoot, "package.json"), JSON.stringify({ name: "crewbee-project-context", version: "0.1.4" }), "utf8");
+    await writeFile(path.join(workspaceRoot, "package-lock.json"), JSON.stringify({ lockfileVersion: 3 }), "utf8");
 
     const result = await runBackgroundReleaseRefresh({ client: {}, worktree: root, directory: root }, root, {
       async fetchJson() {
@@ -1447,6 +1474,8 @@ test("Project Context release refresh keeps existing package when install fails"
       },
       async runInstall(targetWorkspaceRoot) {
         assert.equal(targetWorkspaceRoot, workspaceRoot);
+        await assert.rejects(readFile(path.join(packageRoot, "package.json"), "utf8"), { code: "ENOENT" });
+        await assert.rejects(readFile(path.join(workspaceRoot, "package-lock.json"), "utf8"), { code: "ENOENT" });
         return false;
       }
     });
@@ -1454,7 +1483,7 @@ test("Project Context release refresh keeps existing package when install fails"
     assert.equal(result.needsRefresh, true);
     assert.equal(result.latestVersion, "0.1.5");
     assert.equal(JSON.parse(await readFile(path.join(workspaceRoot, "package.json"), "utf8")).dependencies["crewbee-project-context"], "0.1.5");
-    assert.equal(JSON.parse(await readFile(path.join(packageRoot, "package.json"), "utf8")).version, "0.1.4");
+    await assert.rejects(readFile(path.join(packageRoot, "package.json"), "utf8"), { code: "ENOENT" });
   } finally {
     if (previousConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
     else process.env.XDG_CONFIG_HOME = previousConfigHome;
@@ -1628,14 +1657,28 @@ test("maintainer subsession runner refuses blocking prompt fallback", async () =
   }
 });
 
-test("maintainer update subtask submission does not fail when OpenCode prompt stays streaming", async () => {
+test("maintainer update runs in isolated subsession instead of parent subtask", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "crewbee-context-update-submit-"));
   const calls = [];
   const client = {
     session: {
+      async create(input) {
+        calls.push(["create", input]);
+        return { id: "maintainer-session" };
+      },
+      async promptAsync(input) {
+        calls.push(["promptAsync", input]);
+        return {};
+      },
       async prompt(input) {
-        calls.push(input);
-        return new Promise(() => {});
+        calls.push(["prompt", input]);
+        return {};
+      },
+      async messages() {
+        return [{ role: "assistant", parts: [{ type: "text", text: "PROJECT_CONTEXT_UPDATE_DONE job=pcu_streaming_prompt status=ok" }] }];
+      },
+      async status() {
+        return { "maintainer-session": { type: "idle" } };
       }
     }
   };
@@ -1652,15 +1695,16 @@ test("maintainer update subtask submission does not fail when OpenCode prompt st
     }, { timeoutMs: 5000 });
 
     assert.equal(result.ok, true);
-    assert.equal(calls.length, 1);
+    assert.deepEqual(calls.map((call) => call[0]), ["create", "promptAsync"]);
     assert.ok(Date.now() - startedAt < 3000);
-    const part = calls[0].body.parts[0];
-    assert.equal(calls[0].body.noReply, undefined);
-    assert.equal(part.type, "subtask");
-    assert.equal(part.command, undefined);
-    assert.match(part.prompt, /Job ID: pcu_streaming_prompt/);
-    assert.match(part.prompt, /PROJECT_CONTEXT_UPDATE_DONE job=pcu_streaming_prompt status=<ok\|failed>/);
-    assert.doesNotMatch(part.prompt, /Payload path|Payload JSON|Project root|cache\/update-jobs/i);
+    const promptAsyncCall = calls.find((call) => call[0] === "promptAsync")?.[1];
+    assert.equal(promptAsyncCall.path.id, "maintainer-session");
+    assert.equal(promptAsyncCall.body.agent, "project-context-maintainer");
+    const part = promptAsyncCall.body.parts[0];
+    assert.equal(part.type, "text");
+    assert.match(part.text, /Job ID: pcu_streaming_prompt/);
+    assert.match(part.text, /PROJECT_CONTEXT_UPDATE_DONE job=pcu_streaming_prompt status=<ok\|failed>/);
+    assert.doesNotMatch(part.text, /Payload path|Payload JSON|Project root|cache\/update-jobs/i);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
